@@ -16,18 +16,41 @@
 
 <!-- ===================== LIBRARY ===================== -->
 <main id="library-view" class="view active">
-  <div class="lib-header">
-    <h1 class="lib-title">Longbox<span class="dot">.</span></h1>
-    <span class="lib-count" id="lib-count"></span>
+
+  <div id="library-root">
+    <div class="lib-header">
+      <h1 class="lib-title">Longbox<span class="dot">.</span></h1>
+      <span class="lib-count" id="lib-count"></span>
+    </div>
+
+    <div class="toolbar" id="lib-toolbar" style="display:none;">
+      <div class="pill-row" id="sort-row">
+        <button class="pill" data-sort="recent">Recent</button>
+        <button class="pill" data-sort="title">Title</button>
+        <button class="pill" data-sort="unread">Unread</button>
+        <button class="pill" data-sort="progress">In progress</button>
+      </div>
+      <button class="ghost-btn" id="new-collection-btn">+ Collection</button>
+    </div>
+
+    <div class="empty-state halftone" id="empty-state" style="display:none;">
+      <h2>Your longbox is empty</h2>
+      <p>Import a .cbz file to start reading. Everything stays on this device.</p>
+      <button class="import-btn" id="empty-import-btn">+ Import CBZ</button>
+    </div>
+
+    <div class="comic-grid" id="comic-grid" style="display:none;"></div>
   </div>
 
-  <div class="empty-state halftone" id="empty-state" style="display:none;">
-    <h2>Your longbox is empty</h2>
-    <p>Import a .cbz file to start reading. Everything stays on this device.</p>
-    <button class="import-btn" id="empty-import-btn">+ Import CBZ</button>
+  <div id="collection-view" style="display:none;">
+    <div class="lib-header collection-header">
+      <button class="reader-btn dark-btn" id="collection-back">←</button>
+      <h1 class="lib-title collection-title" id="collection-title"></h1>
+      <button class="reader-btn dark-btn" id="collection-menu">⋮</button>
+    </div>
+    <div class="lib-count" id="collection-count" style="margin: 0 0 16px;"></div>
+    <div class="comic-grid" id="collection-grid"></div>
   </div>
-
-  <div class="comic-grid" id="comic-grid" style="display:none;"></div>
 
   <input type="file" id="import-input" accept=".cbz,.zip" multiple style="display:none" />
 </main>
@@ -37,6 +60,11 @@
 <div class="import-progress" id="import-progress">
   <div class="spinner"></div>
   <span id="import-progress-text">Importing…</span>
+</div>
+
+<!-- ===================== MODAL ===================== -->
+<div class="modal-overlay" id="modal-overlay" style="display:none;">
+  <div class="modal-box" id="modal-box"></div>
 </div>
 
 <!-- ===================== READER ===================== -->
