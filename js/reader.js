@@ -44,6 +44,7 @@ const Reader = {
   async open(comicId) {
     this.comic = await LongboxDB.getComic(comicId);
     if (!this.comic) return;
+    LongboxDB.updateComic(comicId, { lastOpenedAt: Date.now() });
     this.index = this.comic.lastPage || 0;
     this.mode = this.comic.readMode || "single";
     this.theme = this.comic.theme || "dark";
