@@ -404,7 +404,7 @@ const Library = {
   async handleFiles(fileList) {
     const files = Array.from(fileList).filter((f) => /\.cbz$/i.test(f.name) || /\.zip$/i.test(f.name));
     if (!files.length) {
-      alert("Please choose a .cbz (or .zip) file.");
+      alert("No .cbz or .zip files found in that selection. If your files appeared grayed out, look for an \"All files\" option in the picker's filter menu (top right, usually three dots).");
       return;
     }
     this.els.progressEl.classList.add("active");
