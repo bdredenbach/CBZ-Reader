@@ -36,9 +36,15 @@ const Reader = {
     this.els.panelToggle = document.getElementById("panel-zoom-toggle");
     this.els.bubbleToggle = document.getElementById("bubble-zoom-toggle");
     this.els.debugPanel = document.getElementById("debug-panel");
+    this.els.helpDrawer = document.getElementById("help-drawer");
 
     document.getElementById("reader-back").addEventListener("click", () => this.close());
     document.getElementById("reader-bookmark").addEventListener("click", () => this.toggleBookmark());
+    document.getElementById("reader-help").addEventListener("click", () => this.openHelpDrawer());
+    document.getElementById("help-drawer-close").addEventListener("click", () => this.closeHelpDrawer());
+    this.els.helpDrawer.addEventListener("click", (e) => {
+      if (e.target === this.els.helpDrawer) this.closeHelpDrawer();
+    });
     this.els.panelToggle.addEventListener("click", () => this.togglePanelZoom());
     this.els.bubbleToggle.addEventListener("click", () => this.toggleBubbleZoom());
     this.updatePanelToggleUI();
@@ -247,6 +253,14 @@ const Reader = {
   },
   updateBubbleToggleUI() {
     this.els.bubbleToggle.classList.toggle("active", this.bubbleZoomEnabled);
+  },
+
+  openHelpDrawer() {
+    this.els.helpDrawer.classList.add("open");
+    this.showChrome(true);
+  },
+  closeHelpDrawer() {
+    this.els.helpDrawer.classList.remove("open");
   },
 
   // ---------------- On-device gesture debugging ----------------

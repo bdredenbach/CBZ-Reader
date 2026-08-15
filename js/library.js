@@ -126,6 +126,12 @@ const Library = {
 
     document.getElementById("detect-series-btn").addEventListener("click", () => this.detectSeriesNow());
     document.getElementById("new-collection-btn").addEventListener("click", () => this.promptNewCollection());
+    document.getElementById("backup-btn").addEventListener("click", () => this.openBackupMenu());
+    document.getElementById("restore-input").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      e.target.value = "";
+      if (file) this.restoreBackup(file);
+    });
     document.getElementById("collection-back").addEventListener("click", () => this.showRoot());
     document.getElementById("collection-menu").addEventListener("click", () => this.openCollectionMenu(this.activeCollectionId));
 
@@ -434,6 +440,117 @@ const Library = {
     const id = `col_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     await LongboxDB.addCollection({ id, title, createdAt: Date.now() });
     return id;
+  },
+
+  // ---------------- Backup / restore ----------------
+  // Exports reading progress, bookmarks, and collection organization as a
+  // small JSON file — deliberately NOT the page images themselves. Comics
+  // are usually many hundreds of MB of image data; bundling all of that into
+  // one browser-generated archive risks running out of memory on a phone,
+  // and you likely still have the original .cbz files to re-import from.
+  // What's actually tedious to redo by hand is progress/bookmarks/collections,
+  // so that's what this protects.
+  openBackupMenu() {
+    Modal.actions("Backup", "Saves your reading progress, bookmarks, and collections — not the comic files themselves. Re-import your .cbz files first if restoring on a fresh install.", [
+      { label: "Export backup", cls: "primary", onClick: () => this.exportBackup() },
+      { label: "Restore from backup", cls: "neutral", onClick: () => document.getElementById("restore-input").click() },
+      { label: "Cancel", cls: "subtle" },
+    ]);
+  },
+
+  async exportBackup() {
+    const [comics, collections] = await Promise.all([LongboxDB.getAllComics(), LongboxDB.getAllCollections()]);
+    const collectionById = {};
+    collections.forEach((c) => { collectionById[c.id] = c.title; });
+
+    const payload = {
+      app: "longbox",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      collections: collections.map((c) => ({ title: c.title, createdAt: c.createdAt })),
+      comics: comics.map((c) => ({
+        title: c.title,
+        pageCount: c.pageCount,
+        lastPage: c.lastPage,
+        bookmarks: c.bookmarks || [],
+        readMode: c.readMode,
+        theme: c.theme,
+        issueNumber: c.issueNumber ?? null,
+        seriesKey: c.seriesKey ?? null,
+        collectionTitle: c.collectionId ? (collectionById[c.collectionId] || null) : null,
+        addedAt: c.addedAt,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `longbox-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  },
+
+  async restoreBackup(file) {
+    let payload;
+    try {
+      payload = JSON.parse(await file.text());
+    } catch (err) {
+      Modal.actions("Couldn't read backup", "That file doesn't look like a valid Longbox backup.", [{ label: "OK", cls: "neutral" }]);
+      return;
+    }
+    if (!payload || payload.app !== "longbox" || !Array.isArray(payload.comics)) {
+      Modal.actions("Couldn't read backup", "That file doesn't look like a valid Longbox backup.", [{ label: "OK", cls: "neutral" }]);
+      return;
+    }
+
+    const currentComics = await LongboxDB.getAllComics();
+    const existingCollections = await LongboxDB.getAllCollections();
+    const collectionIdByTitle = {};
+    existingCollections.forEach((c) => { collectionIdByTitle[c.title] = c.id; });
+
+    // Recreate any collections from the backup that don't already exist here.
+    const neededTitles = new Set((payload.collections || []).map((c) => c.title).filter(Boolean));
+    for (const title of neededTitles) {
+      if (!collectionIdByTitle[title]) {
+        collectionIdByTitle[title] = await this.createCollection(title);
+      }
+    }
+
+    // Match backup entries to currently-imported comics by exact title —
+    // titles are stable across re-imports of the same .cbz file, but IDs
+    // are regenerated each time, so title is the only reliable link.
+    let matched = 0;
+    const unmatched = [];
+    for (const entry of payload.comics) {
+      const current = currentComics.find((c) => c.title === entry.title);
+      if (!current) {
+        unmatched.push(entry.title);
+        continue;
+      }
+      const patch = {
+        lastPage: entry.lastPage ?? current.lastPage,
+        bookmarks: entry.bookmarks || [],
+        readMode: entry.readMode || current.readMode,
+        theme: entry.theme || current.theme,
+      };
+      if (entry.issueNumber != null) patch.issueNumber = entry.issueNumber;
+      if (entry.seriesKey) patch.seriesKey = entry.seriesKey;
+      if (entry.collectionTitle && collectionIdByTitle[entry.collectionTitle]) {
+        patch.collectionId = collectionIdByTitle[entry.collectionTitle];
+      }
+      await LongboxDB.updateComic(current.id, patch);
+      matched++;
+    }
+
+    const subtitle = unmatched.length
+      ? `Restored ${matched} of ${payload.comics.length}. Not found in your library (import these first, then restore again): ${unmatched.slice(0, 6).join(", ")}${unmatched.length > 6 ? "…" : ""}`
+      : `Restored progress, bookmarks, and collections for all ${matched} comics.`;
+    Modal.actions("Restore complete", subtitle, [{ label: "OK", cls: "neutral" }]);
+    this.showRoot();
   },
 
   // ---------------- Import ----------------
