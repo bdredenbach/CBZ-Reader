@@ -31,11 +31,13 @@ const Reader = {
     this.els.loading = document.getElementById("reader-loading");
     this.els.bookmarkFlag = document.getElementById("bookmark-flag");
     this.els.panelToggle = document.getElementById("panel-zoom-toggle");
+    this.els.debugPanel = document.getElementById("debug-panel");
 
     document.getElementById("reader-back").addEventListener("click", () => this.close());
     document.getElementById("reader-bookmark").addEventListener("click", () => this.toggleBookmark());
     this.els.panelToggle.addEventListener("click", () => this.togglePanelZoom());
     this.updatePanelToggleUI();
+    this.bindDebugToggle();
 
     document.querySelectorAll(".reader-modes .mode-pill").forEach((btn) => {
       btn.addEventListener("click", () => this.setMode(btn.dataset.mode));
@@ -224,6 +226,37 @@ const Reader = {
     this.els.panelToggle.classList.toggle("active", this.panelZoomEnabled);
   },
 
+  // ---------------- On-device gesture debugging ----------------
+  // Tap the page title 5x quickly to toggle a live log of what the gesture
+  // code actually sees on this device — real coordinates, timing, and which
+  // branch it took — so we can diagnose from ground truth instead of guessing.
+  debugMode: false,
+  debugLines: [],
+  bindDebugToggle() {
+    let taps = 0;
+    let resetTimer = null;
+    this.els.title.addEventListener("click", () => {
+      taps++;
+      clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => { taps = 0; }, 1500);
+      if (taps >= 5) {
+        taps = 0;
+        this.debugMode = !this.debugMode;
+        this.els.debugPanel.style.display = this.debugMode ? "block" : "none";
+        this.debugLines = [];
+        this.debugLog(this.debugMode ? "— debug on —" : "— debug off —");
+      }
+    });
+  },
+  debugLog(msg) {
+    if (!this.debugMode) return;
+    const t = new Date().toISOString().slice(11, 23);
+    this.debugLines.push(`${t} ${msg}`);
+    if (this.debugLines.length > 40) this.debugLines.shift();
+    this.els.debugPanel.textContent = this.debugLines.join("\n");
+    this.els.debugPanel.scrollTop = this.els.debugPanel.scrollHeight;
+  },
+
   applyModeClass() {
     this.els.viewport.className = "page-viewport";
     this.els.stage.classList.toggle("mode-spread", this.mode === "spread");
@@ -243,6 +276,7 @@ const Reader = {
 
   setMode(mode) {
     if (mode === this.mode) return;
+    this.debugLog(`setMode: ${this.mode} -> ${mode}`);
     if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
     this.mode = mode;
     this.comic.readMode = mode;
@@ -320,14 +354,16 @@ const Reader = {
   },
 
   showChrome(persist) {
+    this.debugLog(`showChrome(persist=${!!persist})`);
     this.chromeVisible = true;
     this.els.chrome.classList.add("visible");
     clearTimeout(this.chromeTimer);
     if (!persist) {
-      this.chromeTimer = setTimeout(() => this.hideChrome(), 3200);
+      this.chromeTimer = setTimeout(() => { this.debugLog("auto-hideChrome (3.2s timer)"); this.hideChrome(); }, 3200);
     }
   },
   hideChrome() {
+    this.debugLog("hideChrome()");
     this.chromeVisible = false;
     this.els.chrome.classList.remove("visible");
   },
@@ -361,15 +397,22 @@ const Reader = {
 
     stage.addEventListener("touchstart", (e) => {
       if (this.mode === "scroll") return; // native scroll handles this mode
+      // Explicitly suppress the browser's own native double-tap-to-zoom /
+      // pan gesture recognition. touch-action:none in CSS should already do
+      // this, but some Chromium builds (Opera included) are inconsistent
+      // about honoring it for the double-tap case specifically, so we also
+      // block it at the JS level as a second layer.
+      e.preventDefault();
       touches = Array.from(e.touches);
       dragMoved = false;
+      this.debugLog(`touchstart n=${touches.length} scale=${this.scale.toFixed(2)}`);
       if (touches.length === 2) {
         pinchStartDist = dist(touches[0], touches[1]);
         pinchStartScale = this.scale;
       } else if (touches.length === 1) {
         panStart = { x: touches[0].clientX, y: touches[0].clientY, tx: this.tx, ty: this.ty };
       }
-    }, { passive: true });
+    }, { passive: false });
 
     stage.addEventListener("touchmove", (e) => {
       if (this.mode === "scroll") return;
@@ -389,8 +432,12 @@ const Reader = {
           this.tx = panStart.tx + dx;
           this.ty = panStart.ty + dy;
           this.applyTransform();
-          if (Math.abs(dx) > 6 || Math.abs(dy) > 6) dragMoved = true;
+          if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+            if (!dragMoved) this.debugLog(`touchmove -> dragMoved (zoomed) dx=${dx.toFixed(0)} dy=${dy.toFixed(0)}`);
+            dragMoved = true;
+          }
         } else if (Math.abs(dx) > 10) {
+          if (!dragMoved) this.debugLog(`touchmove -> dragMoved (flat) dx=${dx.toFixed(0)}`);
           dragMoved = true;
         }
       }
@@ -398,10 +445,12 @@ const Reader = {
 
     stage.addEventListener("touchend", (e) => {
       if (this.mode === "scroll") return;
+      e.preventDefault();
       const remaining = e.touches.length;
       const endTouch = e.changedTouches[0];
 
       if (remaining === 0) {
+        this.debugLog(`touchend scale=${this.scale.toFixed(2)} dragMoved=${dragMoved} pos=(${endTouch.clientX.toFixed(0)},${endTouch.clientY.toFixed(0)})`);
         if (this.scale <= 1.02) {
           this.scale = 1;
           this.constrainPan();
@@ -409,6 +458,7 @@ const Reader = {
           if (panStart) {
             const dx = endTouch.clientX - panStart.x;
             if (Math.abs(dx) > 60) {
+              this.debugLog(`-> swipe page-turn dx=${dx.toFixed(0)}`);
               if (dx < 0) this.next(); else this.prev();
               panStart = null;
               return;
@@ -426,13 +476,17 @@ const Reader = {
           // each independently turning a page.
           const now = Date.now();
           const pos = { x: endTouch.clientX, y: endTouch.clientY };
+          const deltaMs = now - lastTapTime;
+          const deltaPx = lastTapPos ? Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) : -1;
           const isDouble = now - lastTapTime < 350 &&
             lastTapPos && Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 70;
+          this.debugLog(`tap classify: dtMs=${deltaMs} dPx=${deltaPx.toFixed(0)} isDouble=${isDouble}`);
           if (isDouble) {
             clearTimeout(pendingTapTimer);
             pendingTapTimer = null;
             lastTapTime = 0;
             lastTapPos = null;
+            this.debugLog(`-> handleDoubleTap(${pos.x.toFixed(0)},${pos.y.toFixed(0)})`);
             this.handleDoubleTap(pos);
           } else {
             clearTimeout(pendingTapTimer);
@@ -440,6 +494,7 @@ const Reader = {
             lastTapPos = pos;
             pendingTapTimer = setTimeout(() => {
               pendingTapTimer = null;
+              this.debugLog(`-> handleSingleTap(${pos.x.toFixed(0)},${pos.y.toFixed(0)}) [after 350ms wait]`);
               this.handleSingleTap(pos);
             }, 350);
           }
@@ -493,10 +548,12 @@ const Reader = {
   handleSingleTap(pos) {
     const rect = this.els.stage.getBoundingClientRect();
     const relX = (pos.x - rect.left) / rect.width;
+    this.debugLog(`handleSingleTap relX=${relX.toFixed(2)} scale=${this.scale.toFixed(2)}`);
     if (this.scale <= 1.02) {
-      if (relX < 0.25) { this.prev(); return; }
-      if (relX > 0.75) { this.next(); return; }
+      if (relX < 0.25) { this.debugLog("-> prev()"); this.prev(); return; }
+      if (relX > 0.75) { this.debugLog("-> next()"); this.next(); return; }
     }
+    this.debugLog("-> toggleChrome()");
     this.toggleChrome();
   },
 
@@ -506,18 +563,22 @@ const Reader = {
   handleDoubleTap(pos) {
     const stageRect = this.els.stage.getBoundingClientRect();
     if (this.scale > 1.02) {
+      this.debugLog("handleDoubleTap: already zoomed -> resetZoom()");
       this.resetZoom();
       return;
     }
 
     const img = this.els.viewport.querySelector("img");
     const imgRect = img ? img.getBoundingClientRect() : stageRect;
+    this.debugLog(`handleDoubleTap: img=${!!img} imgRect=${imgRect.width.toFixed(0)}x${imgRect.height.toFixed(0)} mode=${this.mode} panels=${this.currentPanels.length} panelZoomOn=${this.panelZoomEnabled}`);
 
     const relXImg = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
     const relYImg = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
     const panel = this.mode === "single" ? this.findPanelAt(relXImg, relYImg) : null;
+    this.debugLog(`relImg=(${relXImg.toFixed(2)},${relYImg.toFixed(2)}) panelFound=${!!panel}`);
 
     if (panel) {
+      this.debugLog(`-> zoomToPanel ${JSON.stringify(panel)}`);
       this.zoomToPanel(panel, stageRect, imgRect);
       return;
     }
@@ -530,6 +591,7 @@ const Reader = {
     this.ty = -relY * imgRect.height * (targetScale - 1);
     this.constrainPan();
     this.applyTransform();
+    this.debugLog(`-> fallback zoom scale=${this.scale.toFixed(2)} tx=${this.tx.toFixed(0)} ty=${this.ty.toFixed(0)}`);
   },
 
   // Scales/pans so the given panel (fractional coords within the page image)
