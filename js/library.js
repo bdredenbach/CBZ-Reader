@@ -43,17 +43,52 @@ const Modal = {
 };
 
 // ---------------- Series-name parsing ----------------
-// Splits "Batman 001 (2016).cbz" -> { seriesTitle: "Batman", issueNumber: 1 }
+// Real-world scan filenames stack several metadata groups after the issue
+// number — "Wolverine Origin 04 (of 6) (2002) (Digital) (Zone-Empire)" — so
+// a single regex pattern misses most of them. We strip metadata groups first,
+// then try several progressively looser strategies until one sticks.
+
+// Repeatedly remove (...)/[...] groups — these are almost always metadata
+// (year, "of N", scan/release group, format), not part of the series name.
+function stripMetaGroups(s) {
+  let prev, out = s;
+  do {
+    prev = out;
+    out = out.replace(/\([^()]*\)/g, " ").replace(/\[[^\[\]]*\]/g, " ");
+  } while (out !== prev);
+  return out.replace(/\s+/g, " ").trim();
+}
+
+function buildSeriesResult(rawTitle, rawNum) {
+  const title = rawTitle.trim().replace(/[\s._-]+$/, "");
+  if (!title) return null;
+  return { seriesTitle: title, seriesKey: normalizeKey(title), issueNumber: parseInt(rawNum, 10) };
+}
+
 function parseSeriesInfo(filename) {
-  const name = filename.replace(/\.(cbz|zip)$/i, "").trim();
-  const m = name.match(/^(.*?)[\s._-]*#?(?:v(?:ol)?\.?\s*)?(\d{1,4})(?:\s*\([^)]*\))?\s*$/i);
-  if (m && m[1].trim().length > 1) {
-    return {
-      seriesTitle: m[1].trim().replace(/[\s._-]+$/, ""),
-      seriesKey: normalizeKey(m[1]),
-      issueNumber: parseInt(m[2], 10),
-    };
-  }
+  const raw = filename.replace(/\.(cbz|zip)$/i, "").trim();
+  const core = stripMetaGroups(raw);
+  let m, result;
+
+  // Strategy 1: explicit issue marker — "#23", "Issue 23", "Ch. 23", "Vol 2"
+  m = core.match(/^(.*?)[\s._-]+(?:#|issue\s*|iss\.?\s*|ch(?:apter)?\.?\s*|v(?:ol(?:ume)?)?\.?\s*)(\d{1,4})\b/i);
+  if (m && (result = buildSeriesResult(m[1], m[2]))) return result;
+
+  // Strategy 2: trailing number once metadata parens/brackets are stripped away
+  // (this is what fixes "Title 04 (of 6) (2002) (Digital) (Group)")
+  m = core.match(/^(.*?)[\s._-]+(\d{1,4})\s*$/);
+  if (m && (result = buildSeriesResult(m[1], m[2]))) return result;
+
+  // Strategy 3: same shape, but on the raw string, in case the number itself
+  // was accidentally inside what looked like a metadata group
+  m = raw.match(/^(.*?)[\s._-]+#?(\d{1,4})(?:\s*[\(\[][^\)\]]*[\)\]])*\s*$/i);
+  if (m && (result = buildSeriesResult(m[1], m[2]))) return result;
+
+  // Strategy 4: loosest fallback — first short (1–3 digit) number anywhere in
+  // the stripped core, favoring issue-number-like values over 4-digit years
+  m = core.match(/^(.*?)[\s._-]+(\d{1,3})(?:[\s._-]|$)/);
+  if (m && (result = buildSeriesResult(m[1], m[2]))) return result;
+
   return { seriesTitle: null, seriesKey: null, issueNumber: null };
 }
 function normalizeKey(s) {
@@ -89,6 +124,7 @@ const Library = {
       btn.addEventListener("click", () => this.setSort(btn.dataset.sort));
     });
 
+    document.getElementById("detect-series-btn").addEventListener("click", () => this.detectSeriesNow());
     document.getElementById("new-collection-btn").addEventListener("click", () => this.promptNewCollection());
     document.getElementById("collection-back").addEventListener("click", () => this.showRoot());
     document.getElementById("collection-menu").addEventListener("click", () => this.openCollectionMenu(this.activeCollectionId));
@@ -469,21 +505,52 @@ const Library = {
   async suggestBundles(importedIds) {
     if (!importedIds.length) return;
     const comics = await LongboxDB.getAllComics();
-    const standalone = comics.filter((c) => !c.collectionId && c.seriesKey);
     const newKeys = new Set(
       comics.filter((c) => importedIds.includes(c.id) && c.seriesKey).map((c) => c.seriesKey),
     );
-
-    const groups = {};
-    standalone.forEach((c) => {
-      if (!newKeys.has(c.seriesKey)) return;
-      (groups[c.seriesKey] = groups[c.seriesKey] || []).push(c);
-    });
-
-    const candidates = Object.values(groups).filter((g) => g.length >= 2);
+    const candidates = (await this.findSeriesGroups()).filter((g) => newKeys.has(g[0].seriesKey));
     for (const group of candidates) {
       await this.askToBundle(group);
     }
+  },
+
+  // Manual, on-demand scan across the whole library — catches comics that
+  // were imported before naming detection worked, or that were declined
+  // earlier and are now worth another look.
+  async detectSeriesNow() {
+    const candidates = await this.findSeriesGroups();
+    if (!candidates.length) {
+      Modal.actions("No series found", "Every comic in your library is either already bundled or doesn't share a detectable series name with another comic.", [
+        { label: "OK", cls: "neutral" },
+      ]);
+      return;
+    }
+    for (const group of candidates) {
+      await this.askToBundle(group);
+    }
+  },
+
+  // Groups all standalone comics by seriesKey, returns only groups of 2+.
+  // Comics imported before a parser fix may have a stale/null seriesKey saved
+  // from the old logic, so this re-derives it live and backfills the DB.
+  async findSeriesGroups() {
+    const comics = await LongboxDB.getAllComics();
+    const standalone = comics.filter((c) => !c.collectionId);
+    const groups = {};
+    for (const c of standalone) {
+      let key = c.seriesKey;
+      if (!key) {
+        const info = parseSeriesInfo(c.title);
+        key = info.seriesKey;
+        if (key) {
+          await LongboxDB.updateComic(c.id, { seriesKey: key, issueNumber: c.issueNumber ?? info.issueNumber });
+          c.seriesKey = key;
+        }
+      }
+      if (!key) continue;
+      (groups[key] = groups[key] || []).push(c);
+    }
+    return Object.values(groups).filter((g) => g.length >= 2);
   },
 
   askToBundle(group) {
