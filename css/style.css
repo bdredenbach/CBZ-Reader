@@ -614,6 +614,43 @@ button {
   font-weight: 600;
 }
 
+/* Inert preview controls inside the help drawer — visually match the real
+   buttons but are deliberately never wired to any click handler or query
+   that the real controls use, so they can't accidentally become functional. */
+.help-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.help-item-spaced {
+  margin-left: 6px;
+}
+.mini-btn {
+  pointer-events: none;
+  font-size: 10px !important;
+  padding: 5px 9px !important;
+}
+button.reader-btn.mini-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0 !important;
+  font-size: 13px !important;
+}
+.mini-swatch {
+  pointer-events: none;
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+.mini-swatch.active { border-color: var(--red); }
+.mini-swatch.dark { background: #0d0d0f; }
+.mini-swatch.sepia { background: #ece1c8; }
+.mini-swatch.light { background: #ffffff; }
+
 @media (min-width: 700px) {
   .comic-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 }
