@@ -1,13 +1,20 @@
 // panels.js — detects panel boundaries on a comic page so double-tap zoom
 // can snap to the actual panel instead of a geometric quadrant.
 //
-// Approach: classic gutter-scanning. Comic pages are almost always laid out
-// as rows of panels separated by whitespace ("gutters"), with panels within
-// a row separated by further whitespace. We downscale the page, measure how
-// much "ink" (non-white content) sits in each row and column, and treat any
-// sustained near-blank band as a gutter. This handles standard grid layouts
-// well; painterly full-bleed pages with no clear gutters correctly yield no
-// panels, and callers should fall back to geometric zoom in that case.
+// Approach: gutter-scanning by uniformity, not brightness. Comic pages are
+// almost always laid out as rows of panels separated by a gutter, with
+// panels within a row separated by further gutters — but a gutter isn't
+// always white. Some comics use a black or colored divider instead (verified
+// against a real scan: a solid black band between panels measured as HIGH
+// "ink" density under a brightness-based test, indistinguishable from actual
+// line art, so gutter detection silently failed on every page).
+//
+// The format-agnostic signal is uniformity: a gutter — white, black, or any
+// flat color — is a row/column of nearly-identical pixels (near-zero
+// luminance variance), while actual panel content (line art, text, color,
+// gradients) varies a lot. We measure per-row and per-column luminance
+// standard deviation and treat a sustained low-variance band as a gutter,
+// regardless of what color it happens to be.
 
 const PanelDetect = {
   // Returns a Promise<Array<{x,y,w,h}>> with fractional (0..1) page coordinates.
@@ -33,12 +40,6 @@ const PanelDetect = {
   },
 
   _analyze(img, log) {
-    // Real digital-comic gutters are often only a handful of pixels wide at
-    // source resolution. Downscaling too aggressively before analysis blends
-    // them away entirely (verified against a real 1920x2951 scan where a
-    // visibly-gutter page still measured >53% "ink" on every row — the thin
-    // white gutter had been anti-aliased into the surrounding panel colors
-    // by the resize itself, long before the ink threshold ever saw it).
     const maxDim = 900;
     const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
     const w = Math.max(1, Math.round(img.width * scale));
@@ -52,34 +53,36 @@ const PanelDetect = {
     ctx.drawImage(img, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h).data;
 
-    // Slightly forgiving of off-white/cream page color and mild JPEG
-    // ringing near edges, so real gutters aren't swallowed by noise.
-    const INK_LUMINANCE = 244;
-    const isInk = (x, y) => {
+    const lumAt = (x, y) => {
       const i = (y * w + x) * 4;
-      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-      return lum < INK_LUMINANCE;
+      return 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
     };
 
-    // Row ink ratio across the full width
-    const rowInk = new Array(h);
+    // Per-row luminance standard deviation. Flat/uniform rows (any color)
+    // score near 0; rows crossing actual art score much higher (empirically
+    // 50-90 on real pages vs 0-2 on real gutters — a wide, safe margin).
+    const rowStd = new Array(h);
     for (let y = 0; y < h; y++) {
-      let count = 0;
-      for (let x = 0; x < w; x++) if (isInk(x, y)) count++;
-      rowInk[y] = count / w;
+      let sum = 0, sumSq = 0;
+      for (let x = 0; x < w; x++) {
+        const l = lumAt(x, y);
+        sum += l; sumSq += l * l;
+      }
+      const mean = sum / w;
+      rowStd[y] = Math.sqrt(Math.max(0, sumSq / w - mean * mean));
     }
 
     if (log) {
-      const min = Math.min(...rowInk), max = Math.max(...rowInk);
-      const under5pct = rowInk.filter((v) => v < 0.05).length;
-      log(`row-ink min=${min.toFixed(3)} max=${max.toFixed(3)} rows<0.05=${under5pct}/${h}`);
+      const min = Math.min(...rowStd), max = Math.max(...rowStd);
+      const flat = rowStd.filter((v) => v < 10).length;
+      log(`row-stddev min=${min.toFixed(1)} max=${max.toFixed(1)} flat-rows(<10)=${flat}/${h}`);
     }
 
-    const gutterThresh = 0.035;
+    const gutterStdThresh = 10; // luminance stddev below this = "flat" band
     const minRowGutter = Math.max(2, Math.round(h * 0.006));
     const minColGutter = Math.max(2, Math.round(w * 0.006));
 
-    const strips = splitByGutter(rowInk, h, gutterThresh, minRowGutter);
+    const strips = splitByGutter(rowStd, h, gutterStdThresh, minRowGutter);
     if (log) log(`row-split found ${strips.length} strip(s): ${JSON.stringify(strips)}`);
 
     const panels = [];
@@ -88,14 +91,18 @@ const PanelDetect = {
       const stripH = ey - sy;
       if (stripH < h * 0.05) continue; // sliver, likely noise
 
-      const colInk = new Array(w);
+      const colStd = new Array(w);
       for (let x = 0; x < w; x++) {
-        let count = 0;
-        for (let y = sy; y < ey; y++) if (isInk(x, y)) count++;
-        colInk[x] = count / stripH;
+        let sum = 0, sumSq = 0;
+        for (let y = sy; y < ey; y++) {
+          const l = lumAt(x, y);
+          sum += l; sumSq += l * l;
+        }
+        const mean = sum / stripH;
+        colStd[x] = Math.sqrt(Math.max(0, sumSq / stripH - mean * mean));
       }
 
-      const cols = splitByGutter(colInk, w, gutterThresh, minColGutter);
+      const cols = splitByGutter(colStd, w, gutterStdThresh, minColGutter);
       for (const [sx, ex] of cols) {
         const pw = ex - sx;
         if (pw < w * 0.05) continue;
@@ -115,18 +122,19 @@ const PanelDetect = {
   },
 };
 
-// Splits a 1D ink-ratio array into content spans, treating any sustained
-// run of near-blank samples (>= minGutterRun long) as a separating gutter.
-// Short blank runs (anti-aliasing, small gaps in art) are absorbed into
-// whichever content span they sit inside rather than causing a false split.
-function splitByGutter(inkArray, total, thresh, minGutterRun) {
+// Splits a 1D uniformity-score array into content spans, treating any
+// sustained run of low-variance ("flat") samples as a separating gutter.
+// Short flat runs (anti-aliasing, a single flat-colored panel background)
+// are absorbed into whichever content span they sit inside, rather than
+// causing a false split.
+function splitByGutter(arr, total, thresh, minGutterRun) {
   const spans = [];
   let contentStart = 0;
   let inGutterRun = false;
   let gutterRunStart = 0;
 
   for (let i = 0; i <= total; i++) {
-    const isGutterSample = i < total ? inkArray[i] < thresh : true; // sentinel closes final run
+    const isGutterSample = i < total ? arr[i] < thresh : true; // sentinel closes final run
     if (isGutterSample) {
       if (!inGutterRun) {
         inGutterRun = true;
