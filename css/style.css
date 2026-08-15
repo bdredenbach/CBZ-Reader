@@ -527,10 +527,11 @@ button {
   font-size: 13px;
 }
 
-/* Bookmark flag shown on a page */
+/* Bookmark flag shown on a page — sits below the topbar's button row so it
+   never collides with the bookmark button (or anything else) up there. */
 .bookmark-flag {
   position: absolute;
-  top: calc(16px + var(--safe-top));
+  top: calc(60px + var(--safe-top));
   right: 16px;
   color: var(--yellow);
   font-size: 20px;
