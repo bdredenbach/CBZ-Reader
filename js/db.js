@@ -2,7 +2,7 @@
 // Stores: comics (metadata + progress), pages (blob per page, keyed by comicId+index)
 
 const DB_NAME = "longbox";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 let dbPromise = null;
 
 function openDB() {
@@ -20,6 +20,10 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains("collections")) {
         db.createObjectStore("collections", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("panels")) {
+        const store = db.createObjectStore("panels", { keyPath: "key" });
+        store.createIndex("comicId", "comicId", { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -60,13 +64,22 @@ const LongboxDB = {
   },
 
   async deleteComic(id) {
-    const t = await tx(["comics", "pages"], "readwrite");
+    const t = await tx(["comics", "pages", "panels"], "readwrite");
     t.objectStore("comics").delete(id);
     const pageStore = t.objectStore("pages");
-    const idx = pageStore.index("comicId");
-    const range = IDBKeyRange.only(id);
-    const cursorReq = idx.openCursor(range);
-    cursorReq.onsuccess = (e) => {
+    const pageIdx = pageStore.index("comicId");
+    const pageCursorReq = pageIdx.openCursor(IDBKeyRange.only(id));
+    pageCursorReq.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      }
+    };
+    const panelStore = t.objectStore("panels");
+    const panelIdx = panelStore.index("comicId");
+    const panelCursorReq = panelIdx.openCursor(IDBKeyRange.only(id));
+    panelCursorReq.onsuccess = (e) => {
       const cursor = e.target.result;
       if (cursor) {
         cursor.delete();
@@ -87,6 +100,22 @@ const LongboxDB = {
     const req = t.objectStore("pages").get(`${comicId}:${index}`);
     const result = await reqResult(req);
     return result ? result.blob : null;
+  },
+
+  // ---------------- Panel-detection cache ----------------
+  // `panels` is null/undefined = "not yet computed"; an array (possibly
+  // empty) = "computed, here's what we found" — so we never redo the work.
+  async getPanels(comicId, index) {
+    const t = await tx(["panels"], "readonly");
+    const req = t.objectStore("panels").get(`${comicId}:${index}`);
+    const result = await reqResult(req);
+    return result ? result.panels : undefined;
+  },
+
+  async putPanels(comicId, index, panels) {
+    const t = await tx(["panels"], "readwrite");
+    t.objectStore("panels").put({ key: `${comicId}:${index}`, comicId, index, panels });
+    return txDone(t);
   },
 
   // ---------------- Collections ----------------

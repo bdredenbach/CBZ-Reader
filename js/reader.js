@@ -1,5 +1,7 @@
 // reader.js — the reading experience: paging, zoom/pan, modes, themes
 
+const PANEL_ZOOM_KEY = "longbox_panel_zoom_enabled";
+
 const Reader = {
   comic: null,
   pageUrls: [],       // object URLs, lazily filled
@@ -11,6 +13,10 @@ const Reader = {
   ty: 0,
   chromeVisible: true,
   chromeTimer: null,
+
+  currentPanels: [],       // detected panel rects for the visible page, fractional coords
+  panelZoomEnabled: localStorage.getItem(PANEL_ZOOM_KEY) !== "0",
+  _panelLoadToken: 0,      // guards against a slow detection landing on the wrong page
 
   els: {},
 
@@ -24,9 +30,12 @@ const Reader = {
     this.els.sliderLabel = document.getElementById("page-slider-label");
     this.els.loading = document.getElementById("reader-loading");
     this.els.bookmarkFlag = document.getElementById("bookmark-flag");
+    this.els.panelToggle = document.getElementById("panel-zoom-toggle");
 
     document.getElementById("reader-back").addEventListener("click", () => this.close());
     document.getElementById("reader-bookmark").addEventListener("click", () => this.toggleBookmark());
+    this.els.panelToggle.addEventListener("click", () => this.togglePanelZoom());
+    this.updatePanelToggleUI();
 
     document.querySelectorAll(".mode-pill").forEach((btn) => {
       btn.addEventListener("click", () => this.setMode(btn.dataset.mode));
@@ -116,6 +125,7 @@ const Reader = {
       this.els.viewport.appendChild(img);
     });
     this.prefetch();
+    this.loadPanelsForCurrentPage();
   },
 
   async renderScroll() {
@@ -168,6 +178,50 @@ const Reader = {
   prefetch() {
     const step = this.mode === "spread" ? 2 : 1;
     [this.index + step, this.index - 1].forEach((i) => this.getPageUrl(i));
+  },
+
+  // Panel detection is only meaningful for a single displayed page, so we
+  // skip it in spread/scroll modes (double-tap there falls back to
+  // geometric zoom). Results are cached in IndexedDB per comic+page so
+  // returning to a page later is instant.
+  async loadPanelsForCurrentPage() {
+    this.currentPanels = [];
+    if (this.mode !== "single") return;
+
+    const comicId = this.comic.id;
+    const pageIndex = this.index;
+    const token = ++this._panelLoadToken;
+
+    let panels = await LongboxDB.getPanels(comicId, pageIndex);
+    if (panels === undefined) {
+      const url = await this.getPageUrl(pageIndex);
+      panels = url ? await PanelDetect.detect(url) : [];
+      LongboxDB.putPanels(comicId, pageIndex, panels);
+    }
+
+    // If the reader has moved to a different comic/page since this started,
+    // discard the result rather than applying it to the wrong page.
+    if (token !== this._panelLoadToken || this.comic.id !== comicId || this.index !== pageIndex) return;
+    this.currentPanels = panels;
+  },
+
+  findPanelAt(relX, relY) {
+    if (!this.panelZoomEnabled) return null;
+    for (const p of this.currentPanels) {
+      if (relX >= p.x && relX <= p.x + p.w && relY >= p.y && relY <= p.y + p.h) {
+        return p;
+      }
+    }
+    return null;
+  },
+
+  togglePanelZoom() {
+    this.panelZoomEnabled = !this.panelZoomEnabled;
+    localStorage.setItem(PANEL_ZOOM_KEY, this.panelZoomEnabled ? "1" : "0");
+    this.updatePanelToggleUI();
+  },
+  updatePanelToggleUI() {
+    this.els.panelToggle.classList.toggle("active", this.panelZoomEnabled);
   },
 
   applyModeClass() {
@@ -439,20 +493,58 @@ const Reader = {
     this.toggleChrome();
   },
 
-  // Double-tap: zoom into the tapped quadrant of the page ("panel" zoom),
-  // or zoom back out if already zoomed.
+  // Double-tap: if the tap landed inside a detected panel, zoom precisely to
+  // that panel's bounds. Otherwise fall back to a geometric zoom centered on
+  // the tap point. Either way, a second double-tap while zoomed resets.
   handleDoubleTap(pos) {
-    const rect = this.els.stage.getBoundingClientRect();
+    const stageRect = this.els.stage.getBoundingClientRect();
     if (this.scale > 1.02) {
       this.resetZoom();
       return;
     }
-    const relX = (pos.x - rect.left) / rect.width - 0.5;
-    const relY = (pos.y - rect.top) / rect.height - 0.5;
+
+    const img = this.els.viewport.querySelector("img");
+    const imgRect = img ? img.getBoundingClientRect() : stageRect;
+
+    const relXImg = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
+    const relYImg = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
+    const panel = this.mode === "single" ? this.findPanelAt(relXImg, relYImg) : null;
+
+    if (panel) {
+      this.zoomToPanel(panel, stageRect, imgRect);
+      return;
+    }
+
+    const relX = relXImg - 0.5;
+    const relY = relYImg - 0.5;
     const targetScale = 2.4;
     this.scale = targetScale;
-    this.tx = -relX * rect.width * (targetScale - 1);
-    this.ty = -relY * rect.height * (targetScale - 1);
+    this.tx = -relX * imgRect.width * (targetScale - 1);
+    this.ty = -relY * imgRect.height * (targetScale - 1);
+    this.constrainPan();
+    this.applyTransform();
+  },
+
+  // Scales/pans so the given panel (fractional coords within the page image)
+  // fills as much of the stage as possible without being cropped.
+  zoomToPanel(panel, stageRect, imgRect) {
+    const fillRatio = 0.96;
+    const panelPxW = panel.w * imgRect.width;
+    const panelPxH = panel.h * imgRect.height;
+    const sx = stageRect.width / panelPxW;
+    const sy = stageRect.height / panelPxH;
+    const targetScale = clamp(Math.min(sx, sy) * fillRatio, 1, 5);
+
+    const stageCenterX = stageRect.left + stageRect.width / 2;
+    const stageCenterY = stageRect.top + stageRect.height / 2;
+    const panelCenterX = imgRect.left + (panel.x + panel.w / 2) * imgRect.width;
+    const panelCenterY = imgRect.top + (panel.y + panel.h / 2) * imgRect.height;
+    const dx = panelCenterX - stageCenterX;
+    const dy = panelCenterY - stageCenterY;
+
+    this.scale = targetScale;
+    this.tx = -dx * (targetScale - 1);
+    this.ty = -dy * (targetScale - 1);
     this.constrainPan();
     this.applyTransform();
   },
