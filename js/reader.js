@@ -398,6 +398,10 @@ const Reader = {
     let touches = [];
     let pinchStartDist = 0;
     let pinchStartScale = 1;
+    let pinchStartMid = null;
+    let pinchStartTx = 0;
+    let pinchStartTy = 0;
+    let wasPinching = false;
     let panStart = null;
     let lastTapTime = 0;
     let lastTapPos = null;
@@ -419,8 +423,13 @@ const Reader = {
       dragMoved = false;
       this.debugLog(`touchstart n=${touches.length} scale=${this.scale.toFixed(2)}`);
       if (touches.length === 2) {
-        pinchStartDist = dist(touches[0], touches[1]);
+        pinchStartDist = Math.max(1, dist(touches[0], touches[1]));
         pinchStartScale = this.scale;
+        pinchStartMid = mid(touches[0], touches[1]);
+        pinchStartTx = this.tx;
+        pinchStartTy = this.ty;
+        wasPinching = true;
+        panStart = null;
       } else if (touches.length === 1) {
         panStart = { x: touches[0].clientX, y: touches[0].clientY, tx: this.tx, ty: this.ty };
       }
@@ -431,10 +440,23 @@ const Reader = {
       touches = Array.from(e.touches);
       if (touches.length === 2) {
         e.preventDefault();
-        const d = dist(touches[0], touches[1]);
+        const d = Math.max(1, dist(touches[0], touches[1]));
+        const currentMid = mid(touches[0], touches[1]);
         const newScale = clamp(pinchStartScale * (d / pinchStartDist), 1, 5);
+
+        // Keep the content point that was under the fingers anchored to the
+        // moving midpoint. This makes pinch zoom behave like a native
+        // focal-point zoom instead of scaling around the center of the page.
+        const stageRect = stage.getBoundingClientRect();
+        const centerX = stageRect.left + stageRect.width / 2;
+        const centerY = stageRect.top + stageRect.height / 2;
+        const startContentX = (pinchStartMid.x - centerX - pinchStartTx) / pinchStartScale;
+        const startContentY = (pinchStartMid.y - centerY - pinchStartTy) / pinchStartScale;
+
         this.scale = newScale;
-        this.applyTransform();
+        this.tx = currentMid.x - centerX - startContentX * newScale;
+        this.ty = currentMid.y - centerY - startContentY * newScale;
+        this.constrainPan();
         dragMoved = true;
       } else if (touches.length === 1 && panStart) {
         const dx = touches[0].clientX - panStart.x;
@@ -460,6 +482,16 @@ const Reader = {
       e.preventDefault();
       const remaining = e.touches.length;
       const endTouch = e.changedTouches[0];
+
+      // When a pinch ends with one finger still down, start a fresh pan
+      // reference from that finger so the page doesn't jump.
+      if (remaining === 1 && wasPinching) {
+        const t = e.touches[0];
+        panStart = { x: t.clientX, y: t.clientY, tx: this.tx, ty: this.ty };
+        wasPinching = false;
+        dragMoved = true;
+        return;
+      }
 
       if (remaining === 0) {
         this.debugLog(`touchend scale=${this.scale.toFixed(2)} dragMoved=${dragMoved} pos=(${endTouch.clientX.toFixed(0)},${endTouch.clientY.toFixed(0)})`);
@@ -512,6 +544,8 @@ const Reader = {
           }
         }
         panStart = null;
+        wasPinching = false;
+        pinchStartMid = null;
       }
     });
 
@@ -595,15 +629,25 @@ const Reader = {
       return;
     }
 
-    const relX = relXImg - 0.5;
-    const relY = relYImg - 0.5;
     const targetScale = 2.4;
-    this.scale = targetScale;
-    this.tx = -relX * imgRect.width * (targetScale - 1);
-    this.ty = -relY * imgRect.height * (targetScale - 1);
+    this.zoomAtPoint(pos.x, pos.y, targetScale, stageRect);
+    this.debugLog(`-> fallback zoom scale=${this.scale.toFixed(2)} tx=${this.tx.toFixed(0)} ty=${this.ty.toFixed(0)}`);
+  },
+
+  // Zoom around an arbitrary screen-space point, keeping that point fixed
+  // relative to the viewport center as the scale changes. This is the same
+  // geometry used by the pinch gesture, so double-tap and pinch feel alike.
+  zoomAtPoint(screenX, screenY, targetScale, stageRect = this.els.stage.getBoundingClientRect()) {
+    const centerX = stageRect.left + stageRect.width / 2;
+    const centerY = stageRect.top + stageRect.height / 2;
+    const contentX = (screenX - centerX - this.tx) / this.scale;
+    const contentY = (screenY - centerY - this.ty) / this.scale;
+
+    this.scale = clamp(targetScale, 1, 5);
+    this.tx = screenX - centerX - contentX * this.scale;
+    this.ty = screenY - centerY - contentY * this.scale;
     this.constrainPan();
     this.applyTransform();
-    this.debugLog(`-> fallback zoom scale=${this.scale.toFixed(2)} tx=${this.tx.toFixed(0)} ty=${this.ty.toFixed(0)}`);
   },
 
   // Scales/pans so the given panel (fractional coords within the page image)
@@ -623,9 +667,12 @@ const Reader = {
     const dx = panelCenterX - stageCenterX;
     const dy = panelCenterY - stageCenterY;
 
+    // Transform-origin is the center of the viewport. To move the panel
+    // center onto the stage center after scaling, translation must account
+    // for the full scale factor (not scale - 1).
     this.scale = targetScale;
-    this.tx = -dx * (targetScale - 1);
-    this.ty = -dy * (targetScale - 1);
+    this.tx = -dx * targetScale;
+    this.ty = -dy * targetScale;
     this.constrainPan();
     this.applyTransform();
   },
