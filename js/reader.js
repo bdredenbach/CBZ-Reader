@@ -193,18 +193,26 @@ const Reader = {
     const comicId = this.comic.id;
     const pageIndex = this.index;
     const token = ++this._panelLoadToken;
+    // In debug mode, always re-run detection (bypass cache) so the diagnostic
+    // log is populated every time — otherwise a cache hit would silently skip
+    // straight past all the useful numbers.
+    const logger = this.debugMode ? (msg) => this.debugLog(`[panels p${pageIndex}] ${msg}`) : null;
 
-    let panels = await LongboxDB.getPanels(comicId, pageIndex);
+    let panels = this.debugMode ? undefined : await LongboxDB.getPanels(comicId, pageIndex);
     if (panels === undefined) {
+      if (logger) logger("running detection" + (this.debugMode ? " (debug mode bypasses cache)" : " (not cached yet)"));
       const url = await this.getPageUrl(pageIndex);
-      panels = url ? await PanelDetect.detect(url) : [];
+      panels = url ? await PanelDetect.detect(url, logger) : [];
       LongboxDB.putPanels(comicId, pageIndex, panels);
+    } else if (logger) {
+      logger(`cache hit: ${panels.length} panel(s)`);
     }
 
     // If the reader has moved to a different comic/page since this started,
     // discard the result rather than applying it to the wrong page.
     if (token !== this._panelLoadToken || this.comic.id !== comicId || this.index !== pageIndex) return;
     this.currentPanels = panels;
+    if (logger) logger(`currentPanels set: ${panels.length}`);
   },
 
   findPanelAt(relX, relY) {
@@ -245,6 +253,10 @@ const Reader = {
         this.els.debugPanel.style.display = this.debugMode ? "block" : "none";
         this.debugLines = [];
         this.debugLog(this.debugMode ? "— debug on —" : "— debug off —");
+        if (this.debugMode) {
+          this.debugLog(`panelZoomEnabled=${this.panelZoomEnabled} (tap the "Panel Zoom" pill to change)`);
+          if (this.comic) this.loadPanelsForCurrentPage();
+        }
       }
     });
   },

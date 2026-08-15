@@ -12,14 +12,18 @@
 const PanelDetect = {
   // Returns a Promise<Array<{x,y,w,h}>> with fractional (0..1) page coordinates.
   // Resolves to [] if detection fails or the page doesn't look panelized.
-  detect(imgUrl) {
+  // `log`, if provided, receives diagnostic strings — used by the reader's
+  // on-device debug overlay so real-device runs can be inspected directly
+  // instead of guessed at from screenshots.
+  detect(imgUrl, log) {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
         try {
-          resolve(this._analyze(img));
+          resolve(this._analyze(img, log));
         } catch (err) {
           console.warn("Panel detection failed:", err);
+          if (log) log(`ERROR: ${err.message}`);
           resolve([]);
         }
       };
@@ -28,11 +32,12 @@ const PanelDetect = {
     });
   },
 
-  _analyze(img) {
+  _analyze(img, log) {
     const maxDim = 500;
     const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
     const w = Math.max(1, Math.round(img.width * scale));
     const h = Math.max(1, Math.round(img.height * scale));
+    if (log) log(`source=${img.width}x${img.height} downscaled=${w}x${h}`);
 
     const canvas = document.createElement("canvas");
     canvas.width = w;
@@ -56,11 +61,19 @@ const PanelDetect = {
       rowInk[y] = count / w;
     }
 
+    if (log) {
+      const min = Math.min(...rowInk), max = Math.max(...rowInk);
+      const under5pct = rowInk.filter((v) => v < 0.05).length;
+      log(`row-ink min=${min.toFixed(3)} max=${max.toFixed(3)} rows<0.05=${under5pct}/${h}`);
+    }
+
     const gutterThresh = 0.015;
     const minRowGutter = Math.max(2, Math.round(h * 0.008));
     const minColGutter = Math.max(2, Math.round(w * 0.008));
 
     const strips = splitByGutter(rowInk, h, gutterThresh, minRowGutter);
+    if (log) log(`row-split found ${strips.length} strip(s): ${JSON.stringify(strips)}`);
+
     const panels = [];
 
     for (const [sy, ey] of strips) {
@@ -82,9 +95,14 @@ const PanelDetect = {
       }
     }
 
+    if (log) log(`raw panel count before collapse-check: ${panels.length}`);
+
     // A single panel spanning basically the whole page isn't a useful
     // detection — treat it the same as "nothing found" so callers fall back.
-    if (panels.length <= 1) return [];
+    if (panels.length <= 1) {
+      if (log) log("-> collapsed to 0 (<=1 panel found)");
+      return [];
+    }
     return panels;
   },
 };
