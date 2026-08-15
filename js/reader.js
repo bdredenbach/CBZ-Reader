@@ -37,7 +37,7 @@ const Reader = {
     this.els.panelToggle.addEventListener("click", () => this.togglePanelZoom());
     this.updatePanelToggleUI();
 
-    document.querySelectorAll(".mode-pill").forEach((btn) => {
+    document.querySelectorAll(".reader-modes .mode-pill").forEach((btn) => {
       btn.addEventListener("click", () => this.setMode(btn.dataset.mode));
     });
     document.querySelectorAll(".theme-swatch").forEach((btn) => {
@@ -230,7 +230,7 @@ const Reader = {
   },
 
   updateModePills() {
-    document.querySelectorAll(".mode-pill").forEach((btn) => {
+    document.querySelectorAll(".reader-modes .mode-pill").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.mode === this.mode);
     });
   },
@@ -354,6 +354,7 @@ const Reader = {
     let lastTapTime = 0;
     let lastTapPos = null;
     let dragMoved = false;
+    let pendingTapTimer = null;
 
     const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
     const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
@@ -418,23 +419,29 @@ const Reader = {
         }
 
         if (!dragMoved) {
-          // tap logic: double-tap to zoom, single tap to toggle chrome
+          // tap logic: double-tap to zoom, single tap to toggle chrome.
+          // Any two real taps of a double-tap naturally land a little apart
+          // (finger drift), so the position tolerance is generous — too
+          // tight and genuine double-taps get misread as two single taps,
+          // each independently turning a page.
           const now = Date.now();
           const pos = { x: endTouch.clientX, y: endTouch.clientY };
-          const isDouble = now - lastTapTime < 300 &&
-            lastTapPos && Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 40;
+          const isDouble = now - lastTapTime < 350 &&
+            lastTapPos && Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 70;
           if (isDouble) {
-            this.handleDoubleTap(pos);
+            clearTimeout(pendingTapTimer);
+            pendingTapTimer = null;
             lastTapTime = 0;
             lastTapPos = null;
+            this.handleDoubleTap(pos);
           } else {
+            clearTimeout(pendingTapTimer);
             lastTapTime = now;
             lastTapPos = pos;
-            setTimeout(() => {
-              if (Date.now() - lastTapTime >= 290) {
-                this.handleSingleTap(pos);
-              }
-            }, 300);
+            pendingTapTimer = setTimeout(() => {
+              pendingTapTimer = null;
+              this.handleSingleTap(pos);
+            }, 350);
           }
         }
         panStart = null;
