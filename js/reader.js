@@ -1,6 +1,8 @@
 // reader.js — the reading experience: paging, zoom/pan, modes, themes
 
 const PANEL_ZOOM_KEY = "longbox_panel_zoom_enabled";
+const BUBBLE_ZOOM_KEY = "longbox_bubble_zoom_enabled";
+const HOLD_MS = 500; // long-press duration to trigger bubble zoom
 
 const Reader = {
   comic: null,
@@ -16,6 +18,7 @@ const Reader = {
 
   currentPanels: [],       // detected panel rects for the visible page, fractional coords
   panelZoomEnabled: localStorage.getItem(PANEL_ZOOM_KEY) !== "0",
+  bubbleZoomEnabled: localStorage.getItem(BUBBLE_ZOOM_KEY) !== "0",
   _panelLoadToken: 0,      // guards against a slow detection landing on the wrong page
 
   els: {},
@@ -31,12 +34,15 @@ const Reader = {
     this.els.loading = document.getElementById("reader-loading");
     this.els.bookmarkFlag = document.getElementById("bookmark-flag");
     this.els.panelToggle = document.getElementById("panel-zoom-toggle");
+    this.els.bubbleToggle = document.getElementById("bubble-zoom-toggle");
     this.els.debugPanel = document.getElementById("debug-panel");
 
     document.getElementById("reader-back").addEventListener("click", () => this.close());
     document.getElementById("reader-bookmark").addEventListener("click", () => this.toggleBookmark());
     this.els.panelToggle.addEventListener("click", () => this.togglePanelZoom());
+    this.els.bubbleToggle.addEventListener("click", () => this.toggleBubbleZoom());
     this.updatePanelToggleUI();
+    this.updateBubbleToggleUI();
     this.bindDebugToggle();
 
     document.querySelectorAll(".reader-modes .mode-pill").forEach((btn) => {
@@ -234,6 +240,15 @@ const Reader = {
     this.els.panelToggle.classList.toggle("active", this.panelZoomEnabled);
   },
 
+  toggleBubbleZoom() {
+    this.bubbleZoomEnabled = !this.bubbleZoomEnabled;
+    localStorage.setItem(BUBBLE_ZOOM_KEY, this.bubbleZoomEnabled ? "1" : "0");
+    this.updateBubbleToggleUI();
+  },
+  updateBubbleToggleUI() {
+    this.els.bubbleToggle.classList.toggle("active", this.bubbleZoomEnabled);
+  },
+
   // ---------------- On-device gesture debugging ----------------
   // Tap the page title 5x quickly to toggle a live log of what the gesture
   // code actually sees on this device — real coordinates, timing, and which
@@ -254,7 +269,7 @@ const Reader = {
         this.debugLines = [];
         this.debugLog(this.debugMode ? "— debug on —" : "— debug off —");
         if (this.debugMode) {
-          this.debugLog(`panelZoomEnabled=${this.panelZoomEnabled} (tap the "Panel Zoom" pill to change)`);
+          this.debugLog(`panelZoomEnabled=${this.panelZoomEnabled} bubbleZoomEnabled=${this.bubbleZoomEnabled} (tap the pills to change)`);
           if (this.comic) this.loadPanelsForCurrentPage();
         }
       }
@@ -407,9 +422,58 @@ const Reader = {
     let lastTapPos = null;
     let dragMoved = false;
     let pendingTapTimer = null;
+    let holdTimer = null;
+    let holdFired = false;
 
     const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
     const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+
+    // Long-press (hold): search for the speech bubble under the finger and
+    // zoom in tight on it. Mirrors handleDoubleTap's structure — a hold
+    // while already zoomed resets instead of searching again.
+    const triggerHold = async (screenX, screenY) => {
+      holdFired = true;
+      dragMoved = true;
+      panStart = null;
+
+      if (!this.bubbleZoomEnabled || this.mode !== "single") {
+        this.debugLog("hold: ignored (bubble zoom off or not in single-page mode)");
+        return;
+      }
+      this.debugLog(`hold fired at (${screenX.toFixed(0)},${screenY.toFixed(0)}) scale=${this.scale.toFixed(2)}`);
+
+      if (this.scale > 1.02) {
+        this.debugLog("hold: already zoomed -> resetZoom()");
+        this.resetZoom();
+        return;
+      }
+      if (!this.comic) return;
+
+      const stageRect = this.els.stage.getBoundingClientRect();
+      const img = this.els.viewport.querySelector("img");
+      const imgRect = img ? img.getBoundingClientRect() : stageRect;
+      const relXImg = clamp((screenX - imgRect.left) / imgRect.width, 0, 1);
+      const relYImg = clamp((screenY - imgRect.top) / imgRect.height, 0, 1);
+
+      const comicId = this.comic.id;
+      const pageIndex = this.index;
+      const url = await this.getPageUrl(pageIndex);
+      if (!url) return;
+      const logger = this.debugMode ? (msg) => this.debugLog(`[bubble] ${msg}`) : null;
+      const bubble = await BubbleDetect.detect(url, relXImg, relYImg, logger);
+
+      // Bail if the reader moved on to a different comic/page while the
+      // (async) flood fill was running.
+      if (!this.comic || this.comic.id !== comicId || this.index !== pageIndex) return;
+
+      if (bubble) {
+        this.debugLog(`-> zoomToBubble ${JSON.stringify(bubble)}`);
+        this.zoomToBubble(bubble, stageRect, imgRect);
+      } else {
+        this.debugLog("hold: no bubble found -> fallback zoomAtPoint");
+        this.zoomAtPoint(screenX, screenY, 2.4, stageRect);
+      }
+    };
 
     stage.addEventListener("touchstart", (e) => {
       if (this.mode === "scroll") return; // native scroll handles this mode
@@ -430,8 +494,14 @@ const Reader = {
         pinchStartTy = this.ty;
         wasPinching = true;
         panStart = null;
+        clearTimeout(holdTimer);
+        holdTimer = null;
       } else if (touches.length === 1) {
         panStart = { x: touches[0].clientX, y: touches[0].clientY, tx: this.tx, ty: this.ty };
+        holdFired = false;
+        clearTimeout(holdTimer);
+        const hx = touches[0].clientX, hy = touches[0].clientY;
+        holdTimer = setTimeout(() => triggerHold(hx, hy), HOLD_MS);
       }
     }, { passive: false });
 
@@ -458,6 +528,8 @@ const Reader = {
         this.ty = currentMid.y - centerY - startContentY * newScale;
         this.constrainPan();
         dragMoved = true;
+        clearTimeout(holdTimer);
+        holdTimer = null;
       } else if (touches.length === 1 && panStart) {
         const dx = touches[0].clientX - panStart.x;
         const dy = touches[0].clientY - panStart.y;
@@ -469,10 +541,14 @@ const Reader = {
           if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
             if (!dragMoved) this.debugLog(`touchmove -> dragMoved (zoomed) dx=${dx.toFixed(0)} dy=${dy.toFixed(0)}`);
             dragMoved = true;
+            clearTimeout(holdTimer);
+            holdTimer = null;
           }
         } else if (Math.abs(dx) > 10) {
           if (!dragMoved) this.debugLog(`touchmove -> dragMoved (flat) dx=${dx.toFixed(0)}`);
           dragMoved = true;
+          clearTimeout(holdTimer);
+          holdTimer = null;
         }
       }
     }, { passive: false });
@@ -480,8 +556,19 @@ const Reader = {
     stage.addEventListener("touchend", (e) => {
       if (this.mode === "scroll") return;
       e.preventDefault();
+      clearTimeout(holdTimer);
+      holdTimer = null;
       const remaining = e.touches.length;
       const endTouch = e.changedTouches[0];
+
+      // A hold already fired (and already consumed this gesture, either as a
+      // bubble zoom or a zoom-reset) — nothing left to classify as a tap.
+      if (remaining === 0 && holdFired) {
+        holdFired = false;
+        wasPinching = false;
+        panStart = null;
+        return;
+      }
 
       // When a pinch ends with one finger still down, start a fresh pan
       // reference from that finger so the page doesn't jump.
@@ -650,24 +737,28 @@ const Reader = {
     this.applyTransform();
   },
 
-  // Scales/pans so the given panel (fractional coords within the page image)
-  // fills as much of the stage as possible without being cropped.
-  zoomToPanel(panel, stageRect, imgRect) {
-    const fillRatio = 0.96;
-    const panelPxW = panel.w * imgRect.width;
-    const panelPxH = panel.h * imgRect.height;
-    const sx = stageRect.width / panelPxW;
-    const sy = stageRect.height / panelPxH;
-    const targetScale = clamp(Math.min(sx, sy) * fillRatio, 1, 5);
+  // Scales/pans so the given rect (fractional coords within the page image)
+  // fills as much of the stage as possible without being cropped. Shared by
+  // panel-zoom and bubble-zoom — they differ only in how tightly they fill
+  // and how far they're allowed to magnify.
+  zoomToRect(rect, stageRect, imgRect, opts = {}) {
+    const fillRatio = opts.fillRatio ?? 0.96;
+    const maxScale = opts.maxScale ?? 5;
+
+    const rectPxW = rect.w * imgRect.width;
+    const rectPxH = rect.h * imgRect.height;
+    const sx = stageRect.width / rectPxW;
+    const sy = stageRect.height / rectPxH;
+    const targetScale = clamp(Math.min(sx, sy) * fillRatio, 1, maxScale);
 
     const stageCenterX = stageRect.left + stageRect.width / 2;
     const stageCenterY = stageRect.top + stageRect.height / 2;
-    const panelCenterX = imgRect.left + (panel.x + panel.w / 2) * imgRect.width;
-    const panelCenterY = imgRect.top + (panel.y + panel.h / 2) * imgRect.height;
-    const dx = panelCenterX - stageCenterX;
-    const dy = panelCenterY - stageCenterY;
+    const rectCenterX = imgRect.left + (rect.x + rect.w / 2) * imgRect.width;
+    const rectCenterY = imgRect.top + (rect.y + rect.h / 2) * imgRect.height;
+    const dx = rectCenterX - stageCenterX;
+    const dy = rectCenterY - stageCenterY;
 
-    // Transform-origin is the center of the viewport. To move the panel
+    // Transform-origin is the center of the viewport. To move the rect's
     // center onto the stage center after scaling, translation must account
     // for the full scale factor (not scale - 1).
     this.scale = targetScale;
@@ -675,6 +766,16 @@ const Reader = {
     this.ty = -dy * targetScale;
     this.constrainPan();
     this.applyTransform();
+  },
+
+  zoomToPanel(panel, stageRect, imgRect) {
+    this.zoomToRect(panel, stageRect, imgRect, { fillRatio: 0.96, maxScale: 5 });
+  },
+
+  // Bubble zoom is allowed to go tighter and further than panel zoom, since
+  // the whole point is reading text that's smaller than the panel itself.
+  zoomToBubble(bubble, stageRect, imgRect) {
+    this.zoomToRect(bubble, stageRect, imgRect, { fillRatio: 0.9, maxScale: 7 });
   },
 
   constrainPan() {
