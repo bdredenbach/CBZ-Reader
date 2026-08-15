@@ -33,7 +33,13 @@ const PanelDetect = {
   },
 
   _analyze(img, log) {
-    const maxDim = 500;
+    // Real digital-comic gutters are often only a handful of pixels wide at
+    // source resolution. Downscaling too aggressively before analysis blends
+    // them away entirely (verified against a real 1920x2951 scan where a
+    // visibly-gutter page still measured >53% "ink" on every row — the thin
+    // white gutter had been anti-aliased into the surrounding panel colors
+    // by the resize itself, long before the ink threshold ever saw it).
+    const maxDim = 900;
     const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
     const w = Math.max(1, Math.round(img.width * scale));
     const h = Math.max(1, Math.round(img.height * scale));
@@ -46,7 +52,9 @@ const PanelDetect = {
     ctx.drawImage(img, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h).data;
 
-    const INK_LUMINANCE = 235; // below this, a pixel counts as "content" not blank page
+    // Slightly forgiving of off-white/cream page color and mild JPEG
+    // ringing near edges, so real gutters aren't swallowed by noise.
+    const INK_LUMINANCE = 244;
     const isInk = (x, y) => {
       const i = (y * w + x) * 4;
       const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
@@ -67,9 +75,9 @@ const PanelDetect = {
       log(`row-ink min=${min.toFixed(3)} max=${max.toFixed(3)} rows<0.05=${under5pct}/${h}`);
     }
 
-    const gutterThresh = 0.015;
-    const minRowGutter = Math.max(2, Math.round(h * 0.008));
-    const minColGutter = Math.max(2, Math.round(w * 0.008));
+    const gutterThresh = 0.035;
+    const minRowGutter = Math.max(2, Math.round(h * 0.006));
+    const minColGutter = Math.max(2, Math.round(w * 0.006));
 
     const strips = splitByGutter(rowInk, h, gutterThresh, minRowGutter);
     if (log) log(`row-split found ${strips.length} strip(s): ${JSON.stringify(strips)}`);
