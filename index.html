@@ -33,8 +33,11 @@
       <div class="pill-row">
         <button class="ghost-btn" id="detect-series-btn">Detect Series</button>
         <button class="ghost-btn" id="new-collection-btn">+ Collection</button>
+        <button class="ghost-btn" id="backup-btn">Backup</button>
       </div>
     </div>
+
+    <input type="file" id="restore-input" accept=".json,application/json" style="display:none" />
 
     <div class="empty-state halftone" id="empty-state" style="display:none;">
       <h2>Your longbox is empty</h2>
@@ -95,6 +98,7 @@
       <button class="reader-btn" id="reader-back">←</button>
       <span class="reader-title" id="reader-title"></span>
       <button class="reader-btn" id="reader-bookmark"><span class="reg-mark"><span class="reg-mark-ring"></span></span></button>
+      <button class="reader-btn" id="reader-help" title="What do these buttons do?">?</button>
     </div>
     <div class="reader-bottombar">
       <div class="page-slider-row">
@@ -116,6 +120,41 @@
       <div class="page-slider-row">
         <button class="mode-pill" id="panel-zoom-toggle" title="Double-tap zoom snaps to detected panels">Panel Zoom</button>
         <button class="mode-pill" id="bubble-zoom-toggle" title="Hold on a speech bubble to zoom in close on it">Bubble Zoom</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="help-drawer" id="help-drawer">
+    <div class="help-drawer-panel">
+      <div class="help-drawer-header">
+        <span class="reg-mark help-drawer-mark"><span class="reg-mark-ring"></span></span>
+        <h2>Reader Guide</h2>
+        <button class="reader-btn" id="help-drawer-close">✕</button>
+      </div>
+
+      <div class="help-section">
+        <h3>Turning pages</h3>
+        <p><b>Tap the left or right edge</b> of the page, or <b>swipe</b>, to move a page. <b>Tap the middle</b> to show or hide this bar.</p>
+      </div>
+
+      <div class="help-section">
+        <h3>Zooming</h3>
+        <p><b>Pinch</b> to zoom and drag to pan anywhere. <b>Double-tap</b> to zoom in — with Panel Zoom on, it snaps to the exact panel you tapped. <b>Hold</b> on a speech bubble to zoom in tighter on just that bubble. Double-tap or hold again to zoom back out.</p>
+      </div>
+
+      <div class="help-section">
+        <h3>Panel Zoom &amp; Bubble Zoom</h3>
+        <p>These pills toggle the smart-zoom behaviors above on or off. Turned off, double-tap and hold fall back to a plain centered zoom.</p>
+      </div>
+
+      <div class="help-section">
+        <h3>Layout</h3>
+        <p><b>Page</b> shows one page at a time. <b>Spread</b> shows two side by side. <b>Scroll</b> lets you scroll continuously, webtoon-style.</p>
+      </div>
+
+      <div class="help-section">
+        <h3>Theme &amp; bookmark</h3>
+        <p>The three circles switch between dark, sepia, and light reading themes. The registration-mark icon bookmarks your current page.</p>
       </div>
     </div>
   </div>
