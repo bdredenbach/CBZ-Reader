@@ -2,6 +2,7 @@
 
 const PANEL_ZOOM_KEY = "longbox_panel_zoom_enabled";
 const BUBBLE_ZOOM_KEY = "longbox_bubble_zoom_enabled";
+const BUBBLE_ALT_ZOOM_KEY = "longbox_bubble_alt_zoom_enabled";
 const HOLD_MS = 500; // long-press duration to trigger bubble zoom
 
 const Reader = {
@@ -19,6 +20,7 @@ const Reader = {
   currentPanels: [],       // detected panel rects for the visible page, fractional coords
   panelZoomEnabled: localStorage.getItem(PANEL_ZOOM_KEY) !== "0",
   bubbleZoomEnabled: localStorage.getItem(BUBBLE_ZOOM_KEY) !== "0",
+  bubbleAltZoomEnabled: localStorage.getItem(BUBBLE_ALT_ZOOM_KEY) !== "0",
   _panelLoadToken: 0,      // guards against a slow detection landing on the wrong page
 
   els: {},
@@ -35,6 +37,7 @@ const Reader = {
     this.els.bookmarkFlag = document.getElementById("bookmark-flag");
     this.els.panelToggle = document.getElementById("panel-zoom-toggle");
     this.els.bubbleToggle = document.getElementById("bubble-zoom-toggle");
+    this.els.bubbleAltToggle = document.getElementById("bubble-zoom-alt-toggle");
     this.els.debugPanel = document.getElementById("debug-panel");
     this.els.helpDrawer = document.getElementById("help-drawer");
 
@@ -47,8 +50,10 @@ const Reader = {
     });
     this.els.panelToggle.addEventListener("click", () => this.togglePanelZoom());
     this.els.bubbleToggle.addEventListener("click", () => this.toggleBubbleZoom());
+    this.els.bubbleAltToggle.addEventListener("click", () => this.toggleBubbleAltZoom());
     this.updatePanelToggleUI();
     this.updateBubbleToggleUI();
+    this.updateBubbleAltToggleUI();
     this.bindDebugToggle();
 
     document.querySelectorAll(".reader-modes .mode-pill").forEach((btn) => {
@@ -253,6 +258,15 @@ const Reader = {
   },
   updateBubbleToggleUI() {
     this.els.bubbleToggle.classList.toggle("active", this.bubbleZoomEnabled);
+  },
+
+  toggleBubbleAltZoom() {
+    this.bubbleAltZoomEnabled = !this.bubbleAltZoomEnabled;
+    localStorage.setItem(BUBBLE_ALT_ZOOM_KEY, this.bubbleAltZoomEnabled ? "1" : "0");
+    this.updateBubbleAltToggleUI();
+  },
+  updateBubbleAltToggleUI() {
+    this.els.bubbleAltToggle.classList.toggle("active", this.bubbleAltZoomEnabled);
   },
 
   openHelpDrawer() {
@@ -704,11 +718,18 @@ const Reader = {
     this.toggleChrome();
   },
 
-  // Double-tap: if the tap landed inside a detected panel, zoom precisely to
-  // that panel's bounds. Otherwise fall back to a geometric zoom centered on
-  // the tap point. Either way, a second double-tap while zoomed resets.
-  handleDoubleTap(pos) {
+  // Double-tap zoom:
+  // 1) When Bubble Zoom Alt is on, first try to detect a speech/caption bubble
+  //    at the tap point and zoom tightly to it.
+  // 2) Otherwise, when Panel Zoom is on, snap to the detected comic panel.
+  // 3) Otherwise, zoom around the exact tap point.
+  //
+  // Bubble Zoom Alt intentionally uses the same BubbleDetect flood-fill as the
+  // existing long-press Bubble Zoom. The difference is only the trigger:
+  // double-tap on the white fill instead of holding your finger down.
+  async handleDoubleTap(pos) {
     const stageRect = this.els.stage.getBoundingClientRect();
+
     if (this.scale > 1.02) {
       this.debugLog("handleDoubleTap: already zoomed -> resetZoom()");
       this.resetZoom();
@@ -717,14 +738,44 @@ const Reader = {
 
     const img = this.els.viewport.querySelector("img");
     const imgRect = img ? img.getBoundingClientRect() : stageRect;
-    this.debugLog(`handleDoubleTap: img=${!!img} imgRect=${imgRect.width.toFixed(0)}x${imgRect.height.toFixed(0)} mode=${this.mode} panels=${this.currentPanels.length} panelZoomOn=${this.panelZoomEnabled}`);
+    this.debugLog(
+      `handleDoubleTap: img=${!!img} imgRect=${imgRect.width.toFixed(0)}x${imgRect.height.toFixed(0)} ` +
+      `mode=${this.mode} panels=${this.currentPanels.length} panelZoomOn=${this.panelZoomEnabled} ` +
+      `bubbleAltOn=${this.bubbleAltZoomEnabled}`
+    );
 
     const relXImg = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
     const relYImg = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
+
+    // Bubble Zoom Alt takes priority at the exact place the user double-tapped.
+    // This makes the feature feel like Google's bubble/text zoom: tap the
+    // white interior of a speech/caption bubble and that bubble becomes the
+    // reading target.
+    if (this.bubbleAltZoomEnabled && this.mode === "single" && this.comic) {
+      const comicId = this.comic.id;
+      const pageIndex = this.index;
+      const url = await this.getPageUrl(pageIndex);
+      if (url) {
+        const logger = this.debugMode ? (msg) => this.debugLog(`[bubble-alt] ${msg}`) : null;
+        const bubble = await BubbleDetect.detect(url, relXImg, relYImg, logger);
+
+        // Detection is asynchronous; make sure the user didn't navigate away
+        // while it was running.
+        if (!this.comic || this.comic.id !== comicId || this.index !== pageIndex) return;
+
+        if (bubble) {
+          this.debugLog(`-> bubble-alt zoomToBubble ${JSON.stringify(bubble)}`);
+          this.zoomToBubble(bubble, stageRect, imgRect);
+          return;
+        }
+        this.debugLog("bubble-alt: no bubble found -> continue to panel/fallback zoom");
+      }
+    }
+
     const panel = this.mode === "single" ? this.findPanelAt(relXImg, relYImg) : null;
     this.debugLog(`relImg=(${relXImg.toFixed(2)},${relYImg.toFixed(2)}) panelFound=${!!panel}`);
 
-    if (panel) {
+    if (panel && this.panelZoomEnabled) {
       this.debugLog(`-> zoomToPanel ${JSON.stringify(panel)}`);
       this.zoomToPanel(panel, stageRect, imgRect);
       return;
