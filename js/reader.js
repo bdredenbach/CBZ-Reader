@@ -21,6 +21,7 @@ const Reader = {
   panelZoomEnabled: localStorage.getItem(PANEL_ZOOM_KEY) !== "0",
   bubbleZoomEnabled: localStorage.getItem(BUBBLE_ZOOM_KEY) !== "0",
   bubbleAltZoomEnabled: localStorage.getItem(BUBBLE_ALT_ZOOM_KEY) !== "0",
+  bubbleOverlayActive: false,
   _panelLoadToken: 0,      // guards against a slow detection landing on the wrong page
 
   els: {},
@@ -37,7 +38,7 @@ const Reader = {
     this.els.bookmarkFlag = document.getElementById("bookmark-flag");
     this.els.panelToggle = document.getElementById("panel-zoom-toggle");
     this.els.bubbleToggle = document.getElementById("bubble-zoom-toggle");
-    this.els.bubbleAltToggle = document.getElementById("bubble-zoom-alt-toggle");
+    this.els.bubbleAltToggle = document.getElementById("bubble-alt-zoom-toggle");
     this.els.debugPanel = document.getElementById("debug-panel");
     this.els.helpDrawer = document.getElementById("help-drawer");
 
@@ -269,6 +270,14 @@ const Reader = {
     this.els.bubbleAltToggle.classList.toggle("active", this.bubbleAltZoomEnabled);
   },
 
+  removeBubbleOverlay() {
+    if (this.els.bubbleOverlay) {
+      this.els.bubbleOverlay.remove();
+      this.els.bubbleOverlay = null;
+    }
+    this.bubbleOverlayActive = false;
+  },
+
   openHelpDrawer() {
     this.els.helpDrawer.classList.add("open");
     this.showChrome(true);
@@ -297,7 +306,7 @@ const Reader = {
         this.debugLines = [];
         this.debugLog(this.debugMode ? "— debug on —" : "— debug off —");
         if (this.debugMode) {
-          this.debugLog(`panelZoomEnabled=${this.panelZoomEnabled} bubbleZoomEnabled=${this.bubbleZoomEnabled} (tap the pills to change)`);
+          this.debugLog(`panelZoomEnabled=${this.panelZoomEnabled} bubbleZoomEnabled=${this.bubbleZoomEnabled} bubbleAltZoomEnabled=${this.bubbleAltZoomEnabled}`);
           if (this.comic) this.loadPanelsForCurrentPage();
         }
       }
@@ -428,6 +437,7 @@ const Reader = {
   },
 
   resetZoom() {
+    this.removeBubbleOverlay();
     this.scale = 1; this.tx = 0; this.ty = 0;
     this.applyTransform();
   },
@@ -718,64 +728,42 @@ const Reader = {
     this.toggleChrome();
   },
 
-  // Double-tap zoom:
-  // 1) When Bubble Zoom Alt is on, first try to detect a speech/caption bubble
-  //    at the tap point and zoom tightly to it.
-  // 2) Otherwise, when Panel Zoom is on, snap to the detected comic panel.
-  // 3) Otherwise, zoom around the exact tap point.
-  //
-  // Bubble Zoom Alt intentionally uses the same BubbleDetect flood-fill as the
-  // existing long-press Bubble Zoom. The difference is only the trigger:
-  // double-tap on the white fill instead of holding your finger down.
+  // Double-tap: if the tap landed inside a detected panel, zoom precisely to
+  // that panel's bounds. Otherwise fall back to a geometric zoom centered on
+  // the tap point. Either way, a second double-tap while zoomed resets.
   async handleDoubleTap(pos) {
     const stageRect = this.els.stage.getBoundingClientRect();
-
-    if (this.scale > 1.02) {
-      this.debugLog("handleDoubleTap: already zoomed -> resetZoom()");
+    if (this.scale > 1.02 || this.bubbleOverlayActive) {
+      this.debugLog("handleDoubleTap: already zoomed/overlay active -> resetZoom()");
       this.resetZoom();
       return;
     }
 
     const img = this.els.viewport.querySelector("img");
     const imgRect = img ? img.getBoundingClientRect() : stageRect;
-    this.debugLog(
-      `handleDoubleTap: img=${!!img} imgRect=${imgRect.width.toFixed(0)}x${imgRect.height.toFixed(0)} ` +
-      `mode=${this.mode} panels=${this.currentPanels.length} panelZoomOn=${this.panelZoomEnabled} ` +
-      `bubbleAltOn=${this.bubbleAltZoomEnabled}`
-    );
-
     const relXImg = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
     const relYImg = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
 
-    // Bubble Zoom Alt takes priority at the exact place the user double-tapped.
-    // This makes the feature feel like Google's bubble/text zoom: tap the
-    // white interior of a speech/caption bubble and that bubble becomes the
-    // reading target.
-    if (this.bubbleAltZoomEnabled && this.mode === "single" && this.comic) {
-      const comicId = this.comic.id;
+    // Bubble Zoom Alt is deliberately checked first: it is the shape-only
+    // magnifier, while Panel Zoom is the ordinary page zoom.
+    if (this.mode === "single" && this.bubbleAltZoomEnabled) {
+      const comicId = this.comic?.id;
       const pageIndex = this.index;
       const url = await this.getPageUrl(pageIndex);
       if (url) {
         const logger = this.debugMode ? (msg) => this.debugLog(`[bubble-alt] ${msg}`) : null;
-        const bubble = await BubbleDetect.detect(url, relXImg, relYImg, logger);
-
-        // Detection is asynchronous; make sure the user didn't navigate away
-        // while it was running.
+        const bubble = await BubbleDetect.extract(url, relXImg, relYImg, logger);
         if (!this.comic || this.comic.id !== comicId || this.index !== pageIndex) return;
-
         if (bubble) {
-          this.debugLog(`-> bubble-alt zoomToBubble ${JSON.stringify(bubble)}`);
-          this.zoomToBubble(bubble, stageRect, imgRect);
+          this.showBubbleOverlay(bubble, stageRect, imgRect);
           return;
         }
-        this.debugLog("bubble-alt: no bubble found -> continue to panel/fallback zoom");
+        this.debugLog("bubble-alt: no bubble found -> continuing to panel/fallback zoom");
       }
     }
 
     const panel = this.mode === "single" ? this.findPanelAt(relXImg, relYImg) : null;
-    this.debugLog(`relImg=(${relXImg.toFixed(2)},${relYImg.toFixed(2)}) panelFound=${!!panel}`);
-
-    if (panel && this.panelZoomEnabled) {
+    if (panel) {
       this.debugLog(`-> zoomToPanel ${JSON.stringify(panel)}`);
       this.zoomToPanel(panel, stageRect, imgRect);
       return;
@@ -784,6 +772,45 @@ const Reader = {
     const targetScale = 2.4;
     this.zoomAtPoint(pos.x, pos.y, targetScale, stageRect);
     this.debugLog(`-> fallback zoom scale=${this.scale.toFixed(2)} tx=${this.tx.toFixed(0)} ty=${this.ty.toFixed(0)}`);
+  },
+
+  showBubbleOverlay(bubble, stageRect, imgRect) {
+    this.removeBubbleOverlay();
+    const canvas = bubble.canvas;
+    if (!canvas) return;
+
+    const bubbleW = bubble.w * imgRect.width;
+    const bubbleH = bubble.h * imgRect.height;
+    if (bubbleW < 8 || bubbleH < 8) return;
+
+    // Magnify the bubble enough to make its lettering comfortably readable,
+    // but never beyond the available stage. The original page stays untouched.
+    const targetScale = clamp(
+      Math.min(stageRect.width / (bubbleW * 1.10), stageRect.height / (bubbleH * 1.10)),
+      1.35,
+      6
+    );
+
+    const centerX = imgRect.left + (bubble.x + bubble.w / 2) * imgRect.width;
+    const centerY = imgRect.top + (bubble.y + bubble.h / 2) * imgRect.height;
+    const displayW = bubbleW * targetScale;
+    const displayH = bubbleH * targetScale;
+
+    const overlay = document.createElement("canvas");
+    overlay.className = "bubble-zoom-alt-overlay";
+    overlay.width = canvas.width;
+    overlay.height = canvas.height;
+    overlay.style.width = `${displayW}px`;
+    overlay.style.height = `${displayH}px`;
+    overlay.style.left = `${centerX - displayW / 2 - stageRect.left}px`;
+    overlay.style.top = `${centerY - displayH / 2 - stageRect.top}px`;
+    overlay.setAttribute("aria-hidden", "true");
+    overlay.getContext("2d").drawImage(canvas, 0, 0);
+
+    this.els.stage.appendChild(overlay);
+    this.els.bubbleOverlay = overlay;
+    this.bubbleOverlayActive = true;
+    this.debugLog(`bubble-alt: overlay ${displayW.toFixed(0)}x${displayH.toFixed(0)} scale=${targetScale.toFixed(2)}`);
   },
 
   // Zoom around an arbitrary screen-space point, keeping that point fixed
