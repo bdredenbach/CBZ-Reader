@@ -279,62 +279,16 @@ const Reader = {
       return;
     }
     if (animate) {
-      // Safe reverse animation: do not reuse or reverse the finished entrance
-      // Animation object. Create a fresh animation from the focused state back
-      // to the exact original state, then remove the overlay.
       if (overlay._panelZoomInAnimation) {
-        try { overlay._panelZoomInAnimation.cancel(); } catch (_) {}
+        overlay._panelZoomInAnimation.cancel();
         overlay._panelZoomInAnimation = null;
       }
-
-      const reverseDuration = 680;
-      const currentTransform = overlay.style.transform ||
-        `translate3d(var(--panel-dx), var(--panel-dy), 0) scale(var(--panel-scale))`;
-
-      this.debugLog(
-        `panel-focus: zoom-out START duration=${reverseDuration}ms from=focused`
-      );
-
-      const reverse = overlay.animate(
-        [
-          {
-            transform: currentTransform,
-            opacity: 1,
-            boxShadow: "0 18px 44px rgba(0,0,0,.58)"
-          },
-          {
-            transform: "translate3d(0,0,0) scale(1)",
-            opacity: 1,
-            boxShadow: "0 5px 16px rgba(0,0,0,.22)"
-          }
-        ],
-        {
-          duration: reverseDuration,
-          easing: "cubic-bezier(0.22,0.78,0.24,1)",
-          fill: "forwards"
-        }
-      );
-
-      overlay._panelZoomOutAnimation = reverse;
-
-      reverse.onfinish = () => {
-        if (!overlay.parentNode) return;
-        overlay.style.transform = "translate3d(0,0,0) scale(1)";
-        overlay.style.opacity = "1";
-        overlay.style.boxShadow = "0 5px 16px rgba(0,0,0,.22)";
-        overlay._panelZoomOutAnimation = null;
-        overlay.remove();
-        this.debugLog("panel-focus: zoom-out COMPLETE");
-        this.debugLog("panel-focus: overlay REMOVED");
-      };
-
-      reverse.oncancel = () => {
-        if (overlay._panelZoomOutAnimation === reverse) {
-          overlay._panelZoomOutAnimation = null;
-        }
-        this.debugLog("panel-focus: zoom-out CANCELLED");
-      };
-    }
+      overlay.classList.remove("active");
+      overlay.classList.add("closing");
+      overlay.style.transition = "";
+      setTimeout(() => {
+        if (overlay.parentNode) overlay.remove();
+      }, 420);
     } else if (overlay.parentNode) {
       overlay.remove();
     }
