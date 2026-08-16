@@ -614,6 +614,24 @@ button {
   font-weight: 600;
 }
 
+.help-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--paper-dim);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.help-list li {
+  margin: 0 0 4px;
+}
+.help-list li:last-child {
+  margin-bottom: 0;
+}
+.help-list li b {
+  color: var(--paper);
+  font-weight: 600;
+}
+
 /* Inert preview controls inside the help drawer — visually match the real
    buttons but are deliberately never wired to any click handler or query
    that the real controls use, so they can't accidentally become functional. */
@@ -671,10 +689,10 @@ button.reader-btn.mini-btn {
 /* ===== Focus zoom transitions ===== */
 .reader-focus-dim {
   position: absolute; inset: 0;
-  background: rgba(0,0,0,0.15);
+  background: rgba(0,0,0,0.76);
   opacity: 0; pointer-events: none;
   z-index: 2;
-  transition: opacity 260ms ease;
+  transition: opacity 280ms ease;
 }
 .reader-focus-dim.active { opacity: 1; }
 .reader-focus-dim.no-transition { transition: none !important; }
