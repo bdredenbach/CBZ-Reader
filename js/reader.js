@@ -36,7 +36,6 @@ const Reader = {
     this.els.sliderLabel = document.getElementById("page-slider-label");
     this.els.loading = document.getElementById("reader-loading");
     this.els.bookmarkFlag = document.getElementById("bookmark-flag");
-    this.els.panelToggle = document.getElementById("panel-zoom-toggle");
     this.els.bubbleToggle = document.getElementById("bubble-zoom-toggle");
     this.els.bubbleAltToggle = document.getElementById("bubble-alt-zoom-toggle");
     this.els.debugPanel = document.getElementById("debug-panel");
@@ -49,10 +48,8 @@ const Reader = {
     this.els.helpDrawer.addEventListener("click", (e) => {
       if (e.target === this.els.helpDrawer) this.closeHelpDrawer();
     });
-    this.els.panelToggle.addEventListener("click", () => this.togglePanelZoom());
     this.els.bubbleToggle.addEventListener("click", () => this.toggleBubbleZoom());
     this.els.bubbleAltToggle.addEventListener("click", () => this.toggleBubbleAltZoom());
-    this.updatePanelToggleUI();
     this.updateBubbleToggleUI();
     this.updateBubbleAltToggleUI();
     this.bindDebugToggle();
@@ -246,7 +243,6 @@ const Reader = {
   togglePanelZoom() {
     this.panelZoomEnabled = !this.panelZoomEnabled;
     localStorage.setItem(PANEL_ZOOM_KEY, this.panelZoomEnabled ? "1" : "0");
-    this.updatePanelToggleUI();
   },
   updatePanelToggleUI() {
     this.els.panelToggle.classList.toggle("active", this.panelZoomEnabled);
@@ -456,9 +452,9 @@ const Reader = {
     let pinchStartTy = 0;
     let wasPinching = false;
     let panStart = null;
+    let dragMoved = false;
     let lastTapTime = 0;
     let lastTapPos = null;
-    let dragMoved = false;
     let pendingTapTimer = null;
     let holdTimer = null;
     let holdFired = false;
@@ -515,11 +511,9 @@ const Reader = {
 
     stage.addEventListener("touchstart", (e) => {
       if (this.mode === "scroll") return; // native scroll handles this mode
-      // Explicitly suppress the browser's own native double-tap-to-zoom /
-      // pan gesture recognition. touch-action:none in CSS should already do
-      // this, but some Chromium builds (Opera included) are inconsistent
-      // about honoring it for the double-tap case specifically, so we also
-      // block it at the JS level as a second layer.
+      // All page navigation is gesture-based. Double-tap is reserved for
+      // Bubble Zoom Alt; ordinary double-taps must never trigger page zoom.
+      // touch-action:none prevents the browser from stealing the gesture.
       e.preventDefault();
       touches = Array.from(e.touches);
       dragMoved = false;
@@ -623,13 +617,16 @@ const Reader = {
         if (this.scale <= 1.02) {
           this.scale = 1;
           this.constrainPan();
-          // swipe-to-page only if it wasn't a drag-pan and there was real horizontal movement
+          // At page scale, horizontal swipes are the only page-navigation
+          // gesture. A tap never turns the page.
           if (panStart) {
             const dx = endTouch.clientX - panStart.x;
-            if (Math.abs(dx) > 60) {
+            const dy = endTouch.clientY - panStart.y;
+            if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
               this.debugLog(`-> swipe page-turn dx=${dx.toFixed(0)}`);
               if (dx < 0) this.next(); else this.prev();
               panStart = null;
+              wasPinching = false;
               return;
             }
           }
@@ -637,25 +634,23 @@ const Reader = {
           this.constrainPan();
         }
 
-        if (!dragMoved) {
-          // tap logic: double-tap to zoom, single tap to toggle chrome.
-          // Any two real taps of a double-tap naturally land a little apart
-          // (finger drift), so the position tolerance is generous — too
-          // tight and genuine double-taps get misread as two single taps,
-          // each independently turning a page.
+        // A stationary tap waits briefly so a second tap can become
+        // Bubble Zoom Alt. If no second tap arrives, Panel Zoom gets first
+        // choice when the tap lands inside a detected panel; otherwise the
+        // tap only toggles the reader chrome.
+        if (!dragMoved && this.scale <= 1.02) {
           const now = Date.now();
           const pos = { x: endTouch.clientX, y: endTouch.clientY };
-          const deltaMs = now - lastTapTime;
-          const deltaPx = lastTapPos ? Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) : -1;
-          const isDouble = now - lastTapTime < 350 &&
-            lastTapPos && Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 70;
-          this.debugLog(`tap classify: dtMs=${deltaMs} dPx=${deltaPx.toFixed(0)} isDouble=${isDouble}`);
+          const isDouble = lastTapPos &&
+            (now - lastTapTime) < 280 &&
+            Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 70;
+
           if (isDouble) {
             clearTimeout(pendingTapTimer);
             pendingTapTimer = null;
             lastTapTime = 0;
             lastTapPos = null;
-            this.debugLog(`-> handleDoubleTap(${pos.x.toFixed(0)},${pos.y.toFixed(0)})`);
+            this.debugLog(`-> bubble-only double-tap (${pos.x.toFixed(0)},${pos.y.toFixed(0)})`);
             this.handleDoubleTap(pos);
           } else {
             clearTimeout(pendingTapTimer);
@@ -663,9 +658,10 @@ const Reader = {
             lastTapPos = pos;
             pendingTapTimer = setTimeout(() => {
               pendingTapTimer = null;
-              this.debugLog(`-> handleSingleTap(${pos.x.toFixed(0)},${pos.y.toFixed(0)}) [after 350ms wait]`);
+              lastTapTime = 0;
+              lastTapPos = null;
               this.handleSingleTap(pos);
-            }, 350);
+            }, 280);
           }
         }
         panStart = null;
@@ -703,75 +699,81 @@ const Reader = {
     stage.addEventListener("mouseup", (e) => {
       if (this.mode === "scroll") return;
       if (mouseDown && !mouseMoved) {
+        // Desktop click mirrors a single tap: it only toggles chrome.
         this.handleSingleTap({ x: e.clientX, y: e.clientY });
       } else if (mouseDown && mouseMoved && this.scale <= 1.02) {
-        const dx = e.clientX - mStart.x;
-        if (Math.abs(dx) > 60) { if (dx < 0) this.next(); else this.prev(); }
+        const dx = e.clientX - mStart.x, dy = e.clientY - mStart.y;
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+          if (dx < 0) this.next(); else this.prev();
+        }
       }
       mouseDown = false;
     });
-    stage.addEventListener("dblclick", (e) => {
-      if (this.mode === "scroll") return;
-      this.handleDoubleTap({ x: e.clientX, y: e.clientY });
-    });
+    // Intentionally no dblclick handler. On touch devices, double-tap is
+    // reserved exclusively for Bubble Zoom Alt.
   },
 
-  handleSingleTap(pos) {
-    const rect = this.els.stage.getBoundingClientRect();
-    const relX = (pos.x - rect.left) / rect.width;
-    this.debugLog(`handleSingleTap relX=${relX.toFixed(2)} scale=${this.scale.toFixed(2)}`);
-    if (this.scale <= 1.02) {
-      if (relX < 0.25) { this.debugLog("-> prev()"); this.prev(); return; }
-      if (relX > 0.75) { this.debugLog("-> next()"); this.next(); return; }
+  async handleSingleTap(pos) {
+    // Single tap is Panel Zoom when Panel Zoom is enabled and the tap lands
+    // inside a detected panel. A short delay before this method is called
+    // gives a second tap the opportunity to become Bubble Zoom Alt instead.
+    if (this.mode !== "single" || this.scale > 1.02) return;
+
+    const stageRect = this.els.stage.getBoundingClientRect();
+    const img = this.els.viewport.querySelector("img");
+    const imgRect = img ? img.getBoundingClientRect() : stageRect;
+    if (!imgRect.width || !imgRect.height) {
+      this.toggleChrome();
+      return;
     }
-    this.debugLog("-> toggleChrome()");
+
+    const relXImg = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
+    const relYImg = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
+    const panel = this.findPanelAt(relXImg, relYImg);
+
+    if (panel) {
+      this.debugLog(`-> single-tap panel zoom (${relXImg.toFixed(3)},${relYImg.toFixed(3)})`);
+      this.zoomToPanel(panel, stageRect, imgRect);
+      return;
+    }
+
+    // A tap outside a panel only toggles the reader chrome.
+    this.debugLog("-> single tap outside panel: toggle chrome");
     this.toggleChrome();
   },
 
-  // Double-tap: if the tap landed inside a detected panel, zoom precisely to
-  // that panel's bounds. Otherwise fall back to a geometric zoom centered on
-  // the tap point. Either way, a second double-tap while zoomed resets.
+  // Double-tap is reserved for Bubble Zoom Alt. It has priority over the
+  // delayed single-tap Panel Zoom action, so a double-tap inside a bubble
+  // will never briefly zoom the surrounding panel first.
   async handleDoubleTap(pos) {
+    if (this.mode !== "single" || !this.bubbleAltZoomEnabled) return;
+
     const stageRect = this.els.stage.getBoundingClientRect();
-    if (this.scale > 1.02 || this.bubbleOverlayActive) {
-      this.debugLog("handleDoubleTap: already zoomed/overlay active -> resetZoom()");
+    if (this.bubbleOverlayActive) {
+      this.debugLog("bubble-alt: second double-tap -> resetZoom()");
       this.resetZoom();
       return;
     }
 
     const img = this.els.viewport.querySelector("img");
     const imgRect = img ? img.getBoundingClientRect() : stageRect;
+    if (!imgRect.width || !imgRect.height) return;
     const relXImg = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
     const relYImg = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
 
-    // Bubble Zoom Alt is deliberately checked first: it is the shape-only
-    // magnifier, while Panel Zoom is the ordinary page zoom.
-    if (this.mode === "single" && this.bubbleAltZoomEnabled) {
-      const comicId = this.comic?.id;
-      const pageIndex = this.index;
-      const url = await this.getPageUrl(pageIndex);
-      if (url) {
-        const logger = this.debugMode ? (msg) => this.debugLog(`[bubble-alt] ${msg}`) : null;
-        const bubble = await BubbleDetect.extract(url, relXImg, relYImg, logger);
-        if (!this.comic || this.comic.id !== comicId || this.index !== pageIndex) return;
-        if (bubble) {
-          this.showBubbleOverlay(bubble, stageRect, imgRect);
-          return;
-        }
-        this.debugLog("bubble-alt: no bubble found -> continuing to panel/fallback zoom");
-      }
-    }
+    const comicId = this.comic?.id;
+    const pageIndex = this.index;
+    const url = await this.getPageUrl(pageIndex);
+    if (!url) return;
+    const logger = this.debugMode ? (msg) => this.debugLog(`[bubble-alt] ${msg}`) : null;
+    const bubble = await BubbleDetect.extract(url, relXImg, relYImg, logger);
+    if (!this.comic || this.comic.id !== comicId || this.index !== pageIndex) return;
 
-    const panel = this.mode === "single" ? this.findPanelAt(relXImg, relYImg) : null;
-    if (panel) {
-      this.debugLog(`-> zoomToPanel ${JSON.stringify(panel)}`);
-      this.zoomToPanel(panel, stageRect, imgRect);
-      return;
+    if (bubble) {
+      this.showBubbleOverlay(bubble, stageRect, imgRect);
+    } else {
+      this.debugLog("bubble-alt: double-tap outside bubble ignored");
     }
-
-    const targetScale = 2.4;
-    this.zoomAtPoint(pos.x, pos.y, targetScale, stageRect);
-    this.debugLog(`-> fallback zoom scale=${this.scale.toFixed(2)} tx=${this.tx.toFixed(0)} ty=${this.ty.toFixed(0)}`);
   },
 
   showBubbleOverlay(bubble, stageRect, imgRect) {
