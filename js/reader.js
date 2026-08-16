@@ -150,9 +150,11 @@ const Reader = {
   },
 
   async renderContinuous() {
-    const horizontal = this.mode === "manga";
+    const horizontal = this.mode === "scroll" || this.mode === "manga";
+    const rtl = this.mode === "manga";
     this.els.stage.classList.toggle("mode-scroll", !horizontal);
-    this.els.stage.classList.toggle("mode-manga", horizontal);
+    this.els.stage.classList.toggle("mode-manga", rtl);
+    this.els.stage.classList.toggle("mode-webcomic", this.mode === "webcomic");
     this.els.viewport.innerHTML = "";
     this.els.viewport.style.transform = "";
 
@@ -455,10 +457,15 @@ const Reader = {
     // installed/fullscreen PWAs). Failure is intentionally harmless.
     if (mode === "spread" && screen.orientation?.lock) {
       try {
-        await screen.orientation.lock("landscape");
-        this.debugLog("spread: landscape orientation locked");
+        await screen.orientation.lock("landscape-primary");
+        this.debugLog("spread: landscape-primary orientation locked");
       } catch (err) {
-        this.debugLog("spread: landscape lock unavailable; using current orientation");
+        try {
+          await screen.orientation.lock("landscape");
+          this.debugLog("spread: landscape orientation locked");
+        } catch (err2) {
+          this.debugLog("spread: landscape lock unavailable; using current orientation");
+        }
       }
     } else if (wasSpread && screen.orientation?.unlock) {
       try { screen.orientation.unlock(); } catch (_) {}
@@ -605,6 +612,7 @@ const Reader = {
     let pinchStartTy = 0;
     let wasPinching = false;
     let panStart = null;
+    let continuousTapStart = null;
     let dragMoved = false;
     let lastTapTime = 0;
     let lastTapPos = null;
@@ -663,7 +671,12 @@ const Reader = {
     };
 
     stage.addEventListener("touchstart", (e) => {
-      if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") return; // native continuous scroll handles these modes
+      if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
+        continuousTapStart = e.touches.length === 1
+          ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+          : null;
+        return; // observe taps; native scrolling remains untouched
+      } // native continuous scroll handles these modes
       // All page navigation is gesture-based. Double-tap is reserved for
       // Bubble Zoom Alt; ordinary double-taps must never trigger page zoom.
       // touch-action:none prevents the browser from stealing the gesture.
@@ -697,7 +710,16 @@ const Reader = {
     }, { passive: false });
 
     stage.addEventListener("touchmove", (e) => {
-      if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") return;
+      if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
+        if (continuousTapStart && e.touches.length === 1) {
+          const dx = e.touches[0].clientX - continuousTapStart.x;
+          const dy = e.touches[0].clientY - continuousTapStart.y;
+          if (Math.abs(dx) > 10 || Math.abs(dy) > 10) continuousTapStart = null;
+        } else if (e.touches.length !== 1) {
+          continuousTapStart = null;
+        }
+        return;
+      }
       touches = Array.from(e.touches);
       if (touches.length === 2) {
         if (this.focusMode) { e.preventDefault(); dragMoved = true; return; }
@@ -746,7 +768,17 @@ const Reader = {
     }, { passive: false });
 
     stage.addEventListener("touchend", (e) => {
-      if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") return;
+      if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
+        const t = e.changedTouches[0];
+        if (t && continuousTapStart &&
+            Math.abs(t.clientX - continuousTapStart.x) <= 10 &&
+            Math.abs(t.clientY - continuousTapStart.y) <= 10) {
+          this.debugLog(`continuous tap -> showChrome (${this.mode})`);
+          this.showChrome();
+        }
+        continuousTapStart = null;
+        return;
+      }
       e.preventDefault();
       clearTimeout(holdTimer);
       holdTimer = null;
