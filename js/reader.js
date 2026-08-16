@@ -116,8 +116,8 @@ const Reader = {
 
   async render() {
     this.resetZoom({ animate: false });
-    if (this.mode === "scroll") {
-      await this.renderScroll();
+    if (this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic") {
+      await this.renderContinuous();
     } else {
       await this.renderPaged();
     }
@@ -149,24 +149,27 @@ const Reader = {
     this.loadPanelsForCurrentPage();
   },
 
-  async renderScroll() {
-    this.els.stage.classList.add("mode-scroll");
+  async renderContinuous() {
+    const horizontal = this.mode === "manga";
+    this.els.stage.classList.toggle("mode-scroll", !horizontal);
+    this.els.stage.classList.toggle("mode-manga", horizontal);
     this.els.viewport.innerHTML = "";
     this.els.viewport.style.transform = "";
 
     const frag = document.createDocumentFragment();
-    this.comic.pageCount && Array.from({ length: this.comic.pageCount }).forEach((_, i) => {
-      const wrap = document.createElement("div");
-      wrap.className = "scroll-page";
-      wrap.dataset.index = i;
-      const img = document.createElement("img");
-      img.dataset.src = "pending";
-      wrap.appendChild(img);
-      frag.appendChild(wrap);
-    });
+    if (this.comic.pageCount) {
+      Array.from({ length: this.comic.pageCount }).forEach((_, i) => {
+        const wrap = document.createElement("div");
+        wrap.className = "scroll-page";
+        wrap.dataset.index = i;
+        const img = document.createElement("img");
+        img.dataset.src = "pending";
+        wrap.appendChild(img);
+        frag.appendChild(wrap);
+      });
+    }
     this.els.viewport.appendChild(frag);
 
-    // lazy-load visible pages
     const io = new IntersectionObserver((entries) => {
       entries.forEach(async (entry) => {
         const wrap = entry.target;
@@ -189,10 +192,14 @@ const Reader = {
     this.els.stage.querySelectorAll(".scroll-page").forEach((el) => io.observe(el));
     this._scrollObserver = io;
 
-    // jump to last read page
     requestAnimationFrame(() => {
       const target = this.els.stage.querySelector(`.scroll-page[data-index="${this.index}"]`);
-      if (target) target.scrollIntoView({ block: "start" });
+      if (target) {
+        target.scrollIntoView({
+          block: "start",
+          inline: horizontal ? "nearest" : "nearest"
+        });
+      }
     });
   },
 
@@ -415,6 +422,8 @@ const Reader = {
   applyModeClass() {
     this.els.viewport.className = "page-viewport";
     this.els.stage.classList.toggle("mode-spread", this.mode === "spread");
+    this.els.stage.classList.toggle("mode-scroll", this.mode === "scroll" || this.mode === "webcomic");
+    this.els.stage.classList.toggle("mode-manga", this.mode === "manga");
   },
 
   updateModePills() {
@@ -429,16 +438,34 @@ const Reader = {
     });
   },
 
-  setMode(mode) {
+  async setMode(mode) {
     if (mode === this.mode) return;
     this.debugLog(`setMode: ${this.mode} -> ${mode}`);
     if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
+
+    const wasSpread = this.mode === "spread";
     this.mode = mode;
     this.comic.readMode = mode;
     LongboxDB.updateComic(this.comic.id, { readMode: mode });
     this.applyModeClass();
     this.updateModePills();
-    this.render();
+
+    // Best-effort device orientation lock for Spread. Browsers only allow
+    // this in contexts where the Screen Orientation API permits it (commonly
+    // installed/fullscreen PWAs). Failure is intentionally harmless.
+    if (mode === "spread" && screen.orientation?.lock) {
+      try {
+        await screen.orientation.lock("landscape");
+        this.debugLog("spread: landscape orientation locked");
+      } catch (err) {
+        this.debugLog("spread: landscape lock unavailable; using current orientation");
+      }
+    } else if (wasSpread && screen.orientation?.unlock) {
+      try { screen.orientation.unlock(); } catch (_) {}
+    }
+
+    await this.render();
+    this.showChrome();
   },
 
   setTheme(theme) {
@@ -475,11 +502,11 @@ const Reader = {
   },
 
   goTo(i, opts = {}) {
-    const step = this.mode === "spread" ? 2 : 1;
+    const step = (this.mode === "spread" || this.mode === "manga") ? 2 : 1;
     i = Math.max(0, Math.min(this.comic.pageCount - 1, i));
     if (i === this.index && !opts.fromSlider) return;
     this.index = i;
-    if (this.mode === "scroll") {
+    if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
       const target = this.els.stage.querySelector(`.scroll-page[data-index="${i}"]`);
       if (target) target.scrollIntoView({ block: "start", behavior: opts.fromSlider ? "auto" : "smooth" });
       this.updateSliderLabel();
@@ -492,10 +519,12 @@ const Reader = {
 
   next() {
     const step = this.mode === "spread" ? 2 : 1;
+    this.showChrome();
     this.goTo(this.index + step);
   },
   prev() {
     const step = this.mode === "spread" ? 2 : 1;
+    this.showChrome();
     this.goTo(this.index - step);
   },
 
@@ -634,7 +663,7 @@ const Reader = {
     };
 
     stage.addEventListener("touchstart", (e) => {
-      if (this.mode === "scroll") return; // native scroll handles this mode
+      if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") return; // native continuous scroll handles these modes
       // All page navigation is gesture-based. Double-tap is reserved for
       // Bubble Zoom Alt; ordinary double-taps must never trigger page zoom.
       // touch-action:none prevents the browser from stealing the gesture.
@@ -668,7 +697,7 @@ const Reader = {
     }, { passive: false });
 
     stage.addEventListener("touchmove", (e) => {
-      if (this.mode === "scroll") return;
+      if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") return;
       touches = Array.from(e.touches);
       if (touches.length === 2) {
         if (this.focusMode) { e.preventDefault(); dragMoved = true; return; }
@@ -717,7 +746,7 @@ const Reader = {
     }, { passive: false });
 
     stage.addEventListener("touchend", (e) => {
-      if (this.mode === "scroll") return;
+      if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") return;
       e.preventDefault();
       clearTimeout(holdTimer);
       holdTimer = null;
@@ -803,7 +832,7 @@ const Reader = {
 
     // Desktop convenience: wheel to zoom, click-drag to pan, click edges to page
     stage.addEventListener("wheel", (e) => {
-      if (this.mode === "scroll") return;
+      if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") return;
       e.preventDefault();
       const delta = -e.deltaY * 0.0018;
       this.scale = clamp(this.scale + delta, 1, 5);
@@ -818,7 +847,7 @@ const Reader = {
       mStart = { x: e.clientX, y: e.clientY, tx: this.tx, ty: this.ty };
     });
     stage.addEventListener("mousemove", (e) => {
-      if (!mouseDown || this.mode === "scroll") return;
+      if (!mouseDown || this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") return;
       const dx = e.clientX - mStart.x, dy = e.clientY - mStart.y;
       if (Math.abs(dx) > 4 || Math.abs(dy) > 4) mouseMoved = true;
       if (this.scale > 1.02) {
