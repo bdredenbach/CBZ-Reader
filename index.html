@@ -42,7 +42,6 @@
     <div class="empty-state halftone" id="empty-state" style="display:none;">
       <h2>Your longbox is empty</h2>
       <p>Import a .cbz file to start reading. Everything stays on this device.</p>
-      <button class="import-btn" id="empty-import-btn">+ Import CBZ</button>
     </div>
 
     <div class="comic-grid" id="comic-grid" style="display:none;"></div>
@@ -139,34 +138,33 @@
       </div>
 
       <div class="help-section">
+        <h3>Bubble Zoom</h3>
+        <div class="help-item" aria-hidden="true">
+          <button class="mode-pill mini-btn active" tabindex="-1">Bubble Zoom</button>
+          <button class="mode-pill mini-btn active" tabindex="-1">Bubble Zoom Alt</button>
+        </div>
+        <ul class="help-list">
+          <li><b>Hold Screen</b> → zoom the bubble in/out.</li>
+          <li><b>Double-tap a bubble</b> → enlarge only the bubble.</li>
+        </ul>
+      </div>
+
+      <div class="help-section">
         <h3>Zooming &amp; panning</h3>
         <ul class="help-list">
           <li><b>Pinch</b> → zoom the full page</li>
           <li><b>Drag</b> → pan while zoomed</li>
           <li><b>Tap a panel</b> → focus that frame</li>
           <li><b>Double-tap while focused</b> → return to full page</li>
-          <li><b>Double-tap a bubble</b> → enlarge only the bubble</li>
-          <li><b>Swipe left/right</b> → change pages</li>
         </ul>
-      </div>
-
-      <div class="help-section">
-        <h3>Bubble Zoom</h3>
-        <div class="help-item" aria-hidden="true">
-          <button class="mode-pill mini-btn active" tabindex="-1">Bubble Zoom</button>
-          <button class="mode-pill mini-btn active" tabindex="-1">Bubble Zoom Alt</button>
-        </div>
-        <p>These pills toggle the smart bubble behaviors above on or off. Bubble Zoom uses a hold; Bubble Zoom Alt uses a double-tap and enlarges only the detected bubble shape.</p>
-      </div>
-
-      <div class="help-section">
+      </div><div class="help-section">
         <h3>Layout</h3>
         <div class="help-item" aria-hidden="true">
           <button class="mode-pill mini-btn active" tabindex="-1">Page</button>
           <button class="mode-pill mini-btn" tabindex="-1">Spread</button>
           <button class="mode-pill mini-btn" tabindex="-1">Scroll</button>
         </div>
-        <p><b>Page</b> shows one page at a time. <b>Spread</b> shows two side by side. <b>Scroll</b> lets you scroll continuously, webtoon-style.</p>
+        <p><b>Page</b> shows one page at a time. <b>Spread</b> shows two side by side. <b>Scroll</b> lets you scroll continuously, webtoon-style.<br><b>Reader controls</b> fade away while reading and return when you interact with the reader.</p>
       </div>
 
       <div class="help-section">
@@ -192,9 +190,6 @@
 <script src="js/app.js"></script>
 <script>
   document.getElementById("fab-import").addEventListener("click", () => {
-    document.getElementById("import-input").click();
-  });
-  document.getElementById("empty-import-btn").addEventListener("click", () => {
     document.getElementById("import-input").click();
   });
 </script>
