@@ -785,18 +785,48 @@ const Reader = {
     const bubbleH = bubble.h * imgRect.height;
     if (bubbleW < 8 || bubbleH < 8) return;
 
-    // Magnify the bubble enough to make its lettering comfortably readable,
-    // but never beyond the available stage. The original page stays untouched.
-    const targetScale = clamp(
-      Math.min(stageRect.width / (bubbleW * 1.10), stageRect.height / (bubbleH * 1.10)),
-      1.35,
-      6
-    );
+    // Bubble Zoom Alt must stay entirely inside the comic page.  The old
+    // version centered the enlarged bubble on the detected bubble, which
+    // could push balloons near the page edge off-screen and hide lettering.
+    const pagePadding = 8;
+    const availableW = Math.max(1, imgRect.width - pagePadding * 2);
+    const availableH = Math.max(1, imgRect.height - pagePadding * 2);
 
-    const centerX = imgRect.left + (bubble.x + bubble.w / 2) * imgRect.width;
-    const centerY = imgRect.top + (bubble.y + bubble.h / 2) * imgRect.height;
+    // Prefer the usual magnification, but reduce it if the complete bubble
+    // cannot fit inside the page. This preserves the whole balloon and text.
+    const preferredScale = Math.min(
+      stageRect.width / (bubbleW * 1.10),
+      stageRect.height / (bubbleH * 1.10)
+    );
+    const fitScale = Math.min(
+      availableW / bubbleW,
+      availableH / bubbleH
+    );
+    const targetScale = clamp(Math.min(preferredScale, fitScale), 1.35, 6);
+
     const displayW = bubbleW * targetScale;
     const displayH = bubbleH * targetScale;
+
+    // Start from the bubble's natural center, then clamp the enlarged
+    // bubble rectangle so every part of it remains inside the comic page.
+    const naturalCenterX = imgRect.left + (bubble.x + bubble.w / 2) * imgRect.width;
+    const naturalCenterY = imgRect.top + (bubble.y + bubble.h / 2) * imgRect.height;
+
+    const minLeft = imgRect.left + pagePadding;
+    const maxLeft = imgRect.right - pagePadding - displayW;
+    const minTop = imgRect.top + pagePadding;
+    const maxTop = imgRect.bottom - pagePadding - displayH;
+
+    const left = clamp(
+      naturalCenterX - displayW / 2,
+      minLeft,
+      Math.max(minLeft, maxLeft)
+    );
+    const top = clamp(
+      naturalCenterY - displayH / 2,
+      minTop,
+      Math.max(minTop, maxTop)
+    );
 
     const overlay = document.createElement("canvas");
     overlay.className = "bubble-zoom-alt-overlay";
@@ -804,17 +834,23 @@ const Reader = {
     overlay.height = canvas.height;
     overlay.style.width = `${displayW}px`;
     overlay.style.height = `${displayH}px`;
-    overlay.style.left = `${centerX - displayW / 2 - stageRect.left}px`;
-    overlay.style.top = `${centerY - displayH / 2 - stageRect.top}px`;
+    overlay.style.left = `${left - stageRect.left}px`;
+    overlay.style.top = `${top - stageRect.top}px`;
     overlay.setAttribute("aria-hidden", "true");
     overlay.getContext("2d").drawImage(canvas, 0, 0);
 
     this.els.stage.appendChild(overlay);
     this.els.bubbleOverlay = overlay;
     this.bubbleOverlayActive = true;
-    this.debugLog(`bubble-alt: overlay ${displayW.toFixed(0)}x${displayH.toFixed(0)} scale=${targetScale.toFixed(2)}`);
-  },
 
+    const shiftX = left - (naturalCenterX - displayW / 2);
+    const shiftY = top - (naturalCenterY - displayH / 2);
+    this.debugLog(
+      `bubble-alt: overlay ${displayW.toFixed(0)}x${displayH.toFixed(0)} ` +
+      `scale=${targetScale.toFixed(2)} ` +
+      `containShift=(${shiftX.toFixed(0)},${shiftY.toFixed(0)})`
+    );
+  },
   // Zoom around an arbitrary screen-space point, keeping that point fixed
   // relative to the viewport center as the scale changes. This is the same
   // geometry used by the pinch gesture, so double-tap and pinch feel alike.
