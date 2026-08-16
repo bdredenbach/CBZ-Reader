@@ -118,7 +118,6 @@
         </div>
       </div>
       <div class="page-slider-row">
-        <button class="mode-pill" id="panel-zoom-toggle" title="Double-tap zoom snaps to detected panels">Panel Zoom</button>
         <button class="mode-pill" id="bubble-zoom-toggle" title="Hold on a speech bubble to zoom in close on it">Bubble Zoom</button>
         <button class="mode-pill" id="bubble-alt-zoom-toggle" title="Double-tap inside a speech bubble to magnify only the bubble">Bubble Zoom Alt</button>
       </div>
@@ -135,22 +134,24 @@
 
       <div class="help-section">
         <h3>Turning pages</h3>
-        <p><b>Tap the left or right edge</b> of the page, or <b>swipe</b>, to move a page. <b>Tap the middle</b> to show or hide this bar.</p>
+        <p><b>Swipe left</b> to go to the next page. <b>Swipe right</b> to go to the previous page. A stationary tap never turns the page.</p>
+        <p><b>Tap the middle</b> to show or hide the reader controls. Swiping is the page-navigation gesture.</p>
       </div>
 
       <div class="help-section">
-        <h3>Zooming</h3>
-        <p><b>Pinch</b> to zoom and drag to pan anywhere. <b>Double-tap</b> to zoom in — with Panel Zoom on, it snaps to the exact panel you tapped. <b>Hold</b> on a speech bubble to zoom in tighter on just that bubble. With <b>Bubble Zoom Alt</b> on, double-tap inside a speech bubble to magnify only the bubble itself. Double-tap again to zoom back out.</p>
+        <h3>Zooming &amp; panning</h3>
+        <p><b>Pinch in or out</b> to zoom the full page. When zoomed, <b>drag</b> with one finger to pan around the page.</p>
+        <p>When <b>Panel Zoom</b> is enabled, a <b>single tap inside a detected panel</b> zooms to that panel. A single tap outside a panel only shows or hides the reader controls.</p>
+        <p><b>Double-tap is reserved for Bubble Zoom Alt</b>: when enabled, double-tap inside a detected speech bubble to magnify only the bubble shape. Double-tapping artwork or an empty area does nothing.</p>
       </div>
 
       <div class="help-section">
-        <h3>Panel Zoom &amp; Bubble Zoom</h3>
+        <h3>Bubble Zoom</h3>
         <div class="help-item" aria-hidden="true">
-          <button class="mode-pill mini-btn active" tabindex="-1">Panel Zoom</button>
           <button class="mode-pill mini-btn active" tabindex="-1">Bubble Zoom</button>
           <button class="mode-pill mini-btn active" tabindex="-1">Bubble Zoom Alt</button>
         </div>
-        <p>These pills toggle the smart-zoom behaviors above on or off. Bubble Zoom uses a hold; Bubble Zoom Alt uses a double-tap and enlarges only the detected bubble shape.</p>
+        <p>These pills toggle the smart bubble behaviors above on or off. Bubble Zoom uses a hold; Bubble Zoom Alt uses a double-tap and enlarges only the detected bubble shape.</p>
       </div>
 
       <div class="help-section">
