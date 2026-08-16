@@ -933,18 +933,48 @@ const Reader = {
   },
 
   // Scales/pans so the given rect (fractional coords within the page image)
-  // fills as much of the stage as possible without being cropped. Shared by
-  // panel-zoom and bubble-zoom — they differ only in how tightly they fill
-  // and how far they're allowed to magnify.
+  // becomes the visual focus. Small/medium rects are magnified to a useful
+  // reading size. Very large or page-spanning panels instead get a subtle
+  // "focus" zoom: enough movement to make the selection feel intentional,
+  // without trying to blow an already-large panel off the page.
   zoomToRect(rect, stageRect, imgRect, opts = {}) {
     const fillRatio = opts.fillRatio ?? 0.96;
     const maxScale = opts.maxScale ?? 5;
+    const focusKind = opts.focusKind ?? "rect";
 
-    const rectPxW = rect.w * imgRect.width;
-    const rectPxH = rect.h * imgRect.height;
+    const rectPxW = Math.max(1, rect.w * imgRect.width);
+    const rectPxH = Math.max(1, rect.h * imgRect.height);
+    const widthRatio = rect.w;
+    const heightRatio = rect.h;
+    const areaRatio = rect.w * rect.h;
+
     const sx = stageRect.width / rectPxW;
     const sy = stageRect.height / rectPxH;
-    const targetScale = clamp(Math.min(sx, sy) * fillRatio, 1, maxScale);
+    let targetScale = Math.min(sx, sy) * fillRatio;
+
+    if (focusKind === "panel") {
+      // A panel that already spans most of the page should not receive a
+      // huge mathematical zoom. Give it a small, cinematic focus transition
+      // instead, while still centering the selected panel.
+      const pageSpanning = widthRatio >= 0.86 || heightRatio >= 0.86 || areaRatio >= 0.68;
+      if (pageSpanning) {
+        const coverage = Math.max(widthRatio, heightRatio);
+        const focusScale = 1.14 - (coverage - 0.68) * 0.24;
+        targetScale = clamp(focusScale, 1.035, 1.14);
+        this.debugLog(
+          `panel-focus: large panel coverage=${coverage.toFixed(3)} area=${areaRatio.toFixed(3)} -> subtle focus scale=${targetScale.toFixed(2)}`
+        );
+      } else {
+        // Leave a little visual breathing room around ordinary panels.
+        targetScale *= 0.90;
+        targetScale = clamp(targetScale, 1.08, maxScale);
+        this.debugLog(
+          `panel-focus: standard panel ${widthRatio.toFixed(3)}x${heightRatio.toFixed(3)} -> scale=${targetScale.toFixed(2)}`
+        );
+      }
+    } else {
+      targetScale = clamp(targetScale, 1, maxScale);
+    }
 
     const stageCenterX = stageRect.left + stageRect.width / 2;
     const stageCenterY = stageRect.top + stageRect.height / 2;
@@ -967,7 +997,11 @@ const Reader = {
     this.focusMode = "panel";
     this.setFocusDim(true, true);
     this.els.viewport.classList.add("reader-focus-transition");
-    this.zoomToRect(panel, stageRect, imgRect, { fillRatio: 0.96, maxScale: 5 });
+    this.zoomToRect(panel, stageRect, imgRect, {
+      fillRatio: 0.96,
+      maxScale: 4.5,
+      focusKind: "panel"
+    });
     this.debugLog("panel-focus: animated zoom in; double-tap will zoom out");
   },
 
