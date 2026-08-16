@@ -279,8 +279,13 @@ const Reader = {
       return;
     }
     if (animate) {
+      if (overlay._panelZoomInAnimation) {
+        overlay._panelZoomInAnimation.cancel();
+        overlay._panelZoomInAnimation = null;
+      }
       overlay.classList.remove("active");
       overlay.classList.add("closing");
+      overlay.style.transition = "";
       setTimeout(() => {
         if (overlay.parentNode) overlay.remove();
       }, 420);
@@ -1106,12 +1111,64 @@ const Reader = {
     // The overlay starts exactly over the selected frame and grows/moves to
     // its final focused position. This makes the reader's eye follow the
     // selected frame rather than watching the entire page jump.
+    // Use an explicit Web Animations API entrance instead of relying on a
+    // CSS transition on a dynamically-created element. This gives us a
+    // deterministic start/end state and useful debug instrumentation.
+    const startTransform = "translate3d(0,0,0) scale(1)";
+    const endTransform = `translate3d(${dx}px, ${dy}px, 0) scale(${targetScale})`;
+    const zoomInDuration = 680;
+
+    overlay.style.transition = "none";
+    overlay.style.transform = startTransform;
+    overlay.style.opacity = "1";
+    overlay.style.boxShadow = "0 5px 16px rgba(0,0,0,.22)";
+    overlay.style.setProperty("--panel-dx", `${dx}px`);
+    overlay.style.setProperty("--panel-dy", `${dy}px`);
+    overlay.style.setProperty("--panel-scale", `${targetScale}`);
+
     requestAnimationFrame(() => {
       if (token !== this.panelOverlayToken || !overlay.parentNode) return;
-      overlay.style.setProperty("--panel-dx", `${dx}px`);
-      overlay.style.setProperty("--panel-dy", `${dy}px`);
-      overlay.style.setProperty("--panel-scale", `${targetScale}`);
-      overlay.classList.add("active");
+
+      this.debugLog(
+        `panel-focus: zoom-in START duration=${zoomInDuration}ms from=(0,0,1.00) to=(${dx.toFixed(0)},${dy.toFixed(0)},${targetScale.toFixed(2)})`
+      );
+
+      const animation = overlay.animate(
+        [
+          {
+            transform: startTransform,
+            opacity: 1,
+            boxShadow: "0 5px 16px rgba(0,0,0,.22)"
+          },
+          {
+            transform: endTransform,
+            opacity: 1,
+            boxShadow: "0 18px 44px rgba(0,0,0,.58)"
+          }
+        ],
+        {
+          duration: zoomInDuration,
+          easing: "cubic-bezier(0.12,1.24,0.24,1)",
+          fill: "forwards"
+        }
+      );
+
+      overlay._panelZoomInAnimation = animation;
+
+      animation.onfinish = () => {
+        if (!overlay.parentNode) return;
+        overlay.style.transform = endTransform;
+        overlay.style.opacity = "1";
+        overlay.style.boxShadow = "0 18px 44px rgba(0,0,0,.58)";
+        animation.cancel();
+        overlay._panelZoomInAnimation = null;
+        this.debugLog("panel-focus: zoom-in COMPLETE");
+      };
+
+      animation.oncancel = () => {
+        overlay._panelZoomInAnimation = null;
+        this.debugLog("panel-focus: zoom-in CANCELLED");
+      };
     });
 
     this.debugLog(`panel-focus: overlay ${sourceW.toFixed(0)}x${sourceH.toFixed(0)} -> ${targetW.toFixed(0)}x${targetH.toFixed(0)} shift=(${dx.toFixed(0)},${dy.toFixed(0)})`);
