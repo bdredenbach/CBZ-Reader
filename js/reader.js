@@ -279,25 +279,26 @@ const Reader = {
       return;
     }
     if (animate) {
-      // Play the same frame-focus transform back to its exact starting state.
-      // This mirrors the entrance animation instead of relying on a CSS
-      // transition for a dynamically-created overlay.
+      // Safe reverse animation: do not reuse or reverse the finished entrance
+      // Animation object. Create a fresh animation from the focused state back
+      // to the exact original state, then remove the overlay.
       if (overlay._panelZoomInAnimation) {
-        const entrance = overlay._panelZoomInAnimation;
-        try { entrance.cancel(); } catch (_) {}
+        try { overlay._panelZoomInAnimation.cancel(); } catch (_) {}
         overlay._panelZoomInAnimation = null;
       }
 
-      const endTransform = overlay.style.transform ||
+      const reverseDuration = 680;
+      const currentTransform = overlay.style.transform ||
         `translate3d(var(--panel-dx), var(--panel-dy), 0) scale(var(--panel-scale))`;
 
-      const reverseDuration = 680;
-      this.debugLog(`panel-focus: zoom-out START duration=${reverseDuration}ms`);
+      this.debugLog(
+        `panel-focus: zoom-out START duration=${reverseDuration}ms from=focused`
+      );
 
       const reverse = overlay.animate(
         [
           {
-            transform: endTransform,
+            transform: currentTransform,
             opacity: 1,
             boxShadow: "0 18px 44px rgba(0,0,0,.58)"
           },
@@ -315,16 +316,22 @@ const Reader = {
       );
 
       overlay._panelZoomOutAnimation = reverse;
+
       reverse.onfinish = () => {
         if (!overlay.parentNode) return;
         overlay.style.transform = "translate3d(0,0,0) scale(1)";
+        overlay.style.opacity = "1";
         overlay.style.boxShadow = "0 5px 16px rgba(0,0,0,.22)";
         overlay._panelZoomOutAnimation = null;
         overlay.remove();
         this.debugLog("panel-focus: zoom-out COMPLETE");
+        this.debugLog("panel-focus: overlay REMOVED");
       };
+
       reverse.oncancel = () => {
-        overlay._panelZoomOutAnimation = null;
+        if (overlay._panelZoomOutAnimation === reverse) {
+          overlay._panelZoomOutAnimation = null;
+        }
         this.debugLog("panel-focus: zoom-out CANCELLED");
       };
     }
@@ -1199,16 +1206,13 @@ const Reader = {
         overlay.style.transform = endTransform;
         overlay.style.opacity = "1";
         overlay.style.boxShadow = "0 18px 44px rgba(0,0,0,.58)";
-        // Keep the finished animation reference so the same transform can
-        // be played backwards for the focus exit.
-        overlay._panelZoomInAnimation = animation;
+        animation.cancel();
+        overlay._panelZoomInAnimation = null;
         this.debugLog("panel-focus: zoom-in COMPLETE");
       };
 
       animation.oncancel = () => {
-        if (overlay._panelZoomInAnimation === animation) {
-          overlay._panelZoomInAnimation = null;
-        }
+        overlay._panelZoomInAnimation = null;
         this.debugLog("panel-focus: zoom-in CANCELLED");
       };
     });
