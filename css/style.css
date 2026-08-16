@@ -666,3 +666,30 @@ button.reader-btn.mini-btn {
   filter: drop-shadow(0 8px 18px rgba(0,0,0,.45));
   transform-origin: center center;
 }
+
+
+/* ===== Focus zoom transitions ===== */
+.reader-focus-dim {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.13);
+  opacity: 0; pointer-events: none;
+  z-index: 2;
+  transition: opacity 220ms ease;
+}
+.reader-focus-dim.active { opacity: 1; }
+.reader-focus-dim.no-transition { transition: none !important; }
+.reader-focus-transition {
+  transition: transform 360ms cubic-bezier(0.22, 0.78, 0.24, 1);
+}
+.bubble-zoom-alt-overlay {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  transform: scale(0.78);
+  transform-origin: center center;
+  opacity: 0;
+  filter: drop-shadow(0 7px 10px rgba(0,0,0,0.38));
+  transition: transform 280ms cubic-bezier(0.22, 0.78, 0.24, 1), opacity 180ms ease;
+}
+.bubble-zoom-alt-overlay.active { transform: scale(1); opacity: 1; }
+.bubble-zoom-alt-overlay.closing { transform: scale(0.78); opacity: 0; }
