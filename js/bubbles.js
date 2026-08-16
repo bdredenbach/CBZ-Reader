@@ -194,7 +194,7 @@ BubbleDetect._floodFill = function(img, w, h, data, relX, relY, log, wantMask = 
   // without making every light part of the artwork a bubble.
   const thresholds = [218, 205, 192, 180];
   const maxArea = Math.floor(w * h * 0.22);
-  const minArea = Math.max(40, Math.floor(w * h * 0.0015));
+  const minArea = Math.max(28, Math.floor(w * h * 0.0008));
 
   let result = null;
   for (const threshold of thresholds) {
@@ -269,10 +269,18 @@ BubbleDetect._floodFill = function(img, w, h, data, relX, relY, log, wantMask = 
     const fill = count / Math.max(1, bw * bh);
 
     // Avoid accepting an enormous, thin light strip as a speech bubble.
-    // This is deliberately permissive because real balloons can be tall,
-    // wide, or irregular.
     if ((bw > w * 0.92 && bh < h * 0.08) || (bh > h * 0.92 && bw < w * 0.08)) {
       if (log) log(`try threshold=${threshold}: rejected thin page-wide region ${bw}x${bh}`);
+      continue;
+    }
+
+    // Small bubbles are common, especially in dense comic pages. For these,
+    // require a little more shape evidence so lowering the area threshold does
+    // not turn tiny highlights or white lettering gaps into false bubbles.
+    const aspect = bw / Math.max(1, bh);
+    const smallCandidate = count < w * h * 0.0015;
+    if (smallCandidate && (bw < w * 0.018 || bh < h * 0.012 || aspect > 9 || aspect < 0.11 || fill < 0.16)) {
+      if (log) log(`try threshold=${threshold}: rejected tiny implausible region ${bw}x${bh} fill=${fill.toFixed(2)}`);
       continue;
     }
 

@@ -22,6 +22,8 @@ const Reader = {
   bubbleZoomEnabled: localStorage.getItem(BUBBLE_ZOOM_KEY) !== "0",
   bubbleAltZoomEnabled: localStorage.getItem(BUBBLE_ALT_ZOOM_KEY) !== "0",
   bubbleOverlayActive: false,
+  panelOverlayActive: false,
+  panelOverlayToken: 0,
   focusMode: null,          // null | panel | bubble
   focusAnimationTimer: null,
   _panelLoadToken: 0,      // guards against a slow detection landing on the wrong page
@@ -268,6 +270,28 @@ const Reader = {
     this.els.bubbleAltToggle.classList.toggle("active", this.bubbleAltZoomEnabled);
   },
 
+  removePanelOverlay(animate = false) {
+    this.panelOverlayToken++;
+    const overlay = this.els.panelOverlay;
+    if (!overlay) {
+      this.panelOverlayActive = false;
+      if (this.focusMode === "panel") this.focusMode = null;
+      return;
+    }
+    if (animate) {
+      overlay.classList.remove("active");
+      overlay.classList.add("closing");
+      setTimeout(() => {
+        if (overlay.parentNode) overlay.remove();
+      }, 420);
+    } else if (overlay.parentNode) {
+      overlay.remove();
+    }
+    this.els.panelOverlay = null;
+    this.panelOverlayActive = false;
+    if (this.focusMode === "panel") this.focusMode = null;
+  },
+
   removeBubbleOverlay(animate = false) {
     const overlay = this.els.bubbleOverlay;
     if (overlay && animate) {
@@ -448,6 +472,7 @@ const Reader = {
 
   resetZoom(opts = {}) {
     const animate = opts.animate !== false;
+    this.removePanelOverlay(animate);
     this.removeBubbleOverlay();
     this.focusMode = null;
     if (this.focusAnimationTimer) clearTimeout(this.focusAnimationTimer);
@@ -834,7 +859,8 @@ const Reader = {
     if (bubble) {
       this.showBubbleOverlay(bubble, stageRect, imgRect);
     } else {
-      this.debugLog("bubble-alt: double-tap outside bubble ignored");
+      // A failed bubble double-tap must never fall through to Panel Zoom.
+      this.debugLog("bubble-alt: double-tap outside bubble ignored; no panel fallback");
     }
   },
 
@@ -993,16 +1019,102 @@ const Reader = {
     this.applyTransform();
   },
 
-  zoomToPanel(panel, stageRect, imgRect) {
+  async zoomToPanel(panel, stageRect, imgRect) {
+    if (this.focusMode) return;
+    const token = ++this.panelOverlayToken;
+    const img = this.els.viewport.querySelector("img");
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
+
     this.focusMode = "panel";
+    this.panelOverlayActive = false;
     this.setFocusDim(true, true);
-    this.els.viewport.classList.add("reader-focus-transition");
-    this.zoomToRect(panel, stageRect, imgRect, {
-      fillRatio: 0.96,
-      maxScale: 4.5,
-      focusKind: "panel"
+
+    const sourceLeft = imgRect.left + panel.x * imgRect.width;
+    const sourceTop = imgRect.top + panel.y * imgRect.height;
+    const sourceW = Math.max(8, panel.w * imgRect.width);
+    const sourceH = Math.max(8, panel.h * imgRect.height);
+
+    // Render the selected frame from the original-resolution page, not the
+    // downscaled detector image. Cap the working canvas to keep memory sane
+    // on very large scans while retaining more than enough detail for phones.
+    const naturalW = Math.max(1, Math.round(panel.w * img.naturalWidth));
+    const naturalH = Math.max(1, Math.round(panel.h * img.naturalHeight));
+    const renderScale = Math.min(1, 3000 / Math.max(naturalW, naturalH));
+    const canvasW = Math.max(1, Math.round(naturalW * renderScale));
+    const canvasH = Math.max(1, Math.round(naturalH * renderScale));
+    const sx = panel.x * img.naturalWidth;
+    const sy = panel.y * img.naturalHeight;
+    const sw = panel.w * img.naturalWidth;
+    const sh = panel.h * img.naturalHeight;
+
+    const overlay = document.createElement("div");
+    overlay.className = "panel-focus-overlay";
+    overlay.setAttribute("aria-hidden", "true");
+    overlay.style.left = `${sourceLeft - stageRect.left}px`;
+    overlay.style.top = `${sourceTop - stageRect.top}px`;
+    overlay.style.width = `${sourceW}px`;
+    overlay.style.height = `${sourceH}px`;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    canvas.getContext("2d").imageSmoothingEnabled = true;
+    canvas.getContext("2d").imageSmoothingQuality = "high";
+    canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, canvasW, canvasH);
+    overlay.appendChild(canvas);
+
+    // Adaptive target: small panels get a useful reading enlargement;
+    // page-spanning panels get a subtle focus treatment instead of a huge
+    // zoom. The final target is always contained within the comic image.
+    const pagePad = Math.max(8, Math.min(18, Math.round(Math.min(imgRect.width, imgRect.height) * 0.018)));
+    const availableW = Math.max(1, imgRect.width - pagePad * 2);
+    const availableH = Math.max(1, imgRect.height - pagePad * 2);
+    const fitScale = Math.min(availableW / sourceW, availableH / sourceH);
+    const areaRatio = panel.w * panel.h;
+    const coverage = Math.max(panel.w, panel.h);
+    const pageSpanning = panel.w >= 0.86 || panel.h >= 0.86 || areaRatio >= 0.68;
+
+    let targetScale;
+    if (pageSpanning) {
+      targetScale = clamp(Math.min(1.08, fitScale), 1, 1.08);
+      this.debugLog(`panel-focus: overlay large coverage=${coverage.toFixed(3)} area=${areaRatio.toFixed(3)} fit=${fitScale.toFixed(2)} target=${targetScale.toFixed(2)}`);
+    } else {
+      targetScale = clamp(Math.min(fitScale * 0.94, 4.5), 1.08, 4.5);
+      this.debugLog(`panel-focus: overlay standard ${panel.w.toFixed(3)}x${panel.h.toFixed(3)} fit=${fitScale.toFixed(2)} target=${targetScale.toFixed(2)}`);
+    }
+
+    const targetW = sourceW * targetScale;
+    const targetH = sourceH * targetScale;
+    const pageLeft = imgRect.left + pagePad;
+    const pageTop = imgRect.top + pagePad;
+    const pageRight = imgRect.right - pagePad;
+    const pageBottom = imgRect.bottom - pagePad;
+    const targetCenterX = imgRect.left + imgRect.width / 2;
+    const targetCenterY = imgRect.top + imgRect.height / 2;
+    const targetLeft = clamp(targetCenterX - targetW / 2, pageLeft, Math.max(pageLeft, pageRight - targetW));
+    const targetTop = clamp(targetCenterY - targetH / 2, pageTop, Math.max(pageTop, pageBottom - targetH));
+    const dx = targetLeft - sourceLeft;
+    const dy = targetTop - sourceTop;
+
+    this.els.stage.appendChild(overlay);
+    this.els.panelOverlay = overlay;
+    this.panelOverlayActive = true;
+    this.els.viewport.classList.add("panel-focus-page-dimmed");
+
+    // The overlay starts exactly over the selected frame and grows/moves to
+    // its final focused position. This makes the reader's eye follow the
+    // selected frame rather than watching the entire page jump.
+    requestAnimationFrame(() => {
+      if (token !== this.panelOverlayToken || !overlay.parentNode) return;
+      overlay.style.setProperty("--panel-dx", `${dx}px`);
+      overlay.style.setProperty("--panel-dy", `${dy}px`);
+      overlay.style.setProperty("--panel-scale", `${targetScale}`);
+      overlay.classList.add("active");
     });
-    this.debugLog("panel-focus: animated zoom in; double-tap will zoom out");
+
+    this.debugLog(`panel-focus: overlay ${sourceW.toFixed(0)}x${sourceH.toFixed(0)} -> ${targetW.toFixed(0)}x${targetH.toFixed(0)} shift=(${dx.toFixed(0)},${dy.toFixed(0)})`);
   },
 
   // Bubble zoom is allowed to go tighter and further than panel zoom, since
