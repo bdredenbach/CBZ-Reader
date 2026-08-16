@@ -298,9 +298,13 @@ BubbleDetect._floodFill = function(img, w, h, data, relX, relY, log, wantMask = 
   if (!wantMask) return rect;
 
   const sx = img.width / w, sy = img.height / h;
-  const cw = x1-x0, ch = y1-y0;
+  const cw = Math.max(1, Math.round((x1-x0) * sx));
+  const ch = Math.max(1, Math.round((y1-y0) * sy));
   const crop = document.createElement('canvas'); crop.width = cw; crop.height = ch;
-  crop.getContext('2d').drawImage(img, x0*sx, y0*sy, cw*sx, ch*sy, 0, 0, cw, ch);
+  const cctx = crop.getContext('2d');
+  cctx.imageSmoothingEnabled = true;
+  cctx.imageSmoothingQuality = 'high';
+  cctx.drawImage(img, x0*sx, y0*sy, (x1-x0)*sx, (y1-y0)*sy, 0, 0, cw, ch);
 
   const mask = document.createElement('canvas'); mask.width = cw; mask.height = ch;
   const md = mask.getContext('2d').createImageData(cw, ch);
@@ -309,14 +313,22 @@ BubbleDetect._floodFill = function(img, w, h, data, relX, relY, log, wantMask = 
     if (b < a) continue;
     a = Math.max(x0, a - 1);
     b = Math.min(x1 - 1, b + 1);
-    for (let xx = a; xx <= b; xx++) {
-      md.data[((yy-y0)*cw + (xx-x0))*4 + 3] = 255;
+    const py0 = Math.max(0, Math.floor((yy - y0) * sy));
+    const py1 = Math.min(ch, Math.ceil((yy + 1 - y0) * sy));
+    const px0 = Math.max(0, Math.floor((a - x0) * sx));
+    const px1 = Math.min(cw, Math.ceil((b + 1 - x0) * sx));
+    for (let py = py0; py < py1; py++) {
+      for (let px = px0; px < px1; px++) {
+        md.data[(py*cw + px)*4 + 3] = 255;
+      }
     }
   }
   mask.getContext('2d').putImageData(md, 0, 0);
 
   const out = document.createElement('canvas'); out.width = cw; out.height = ch;
   const octx = out.getContext('2d');
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = 'high';
   octx.drawImage(crop, 0, 0);
   octx.globalCompositeOperation = 'destination-in';
   octx.drawImage(mask, 0, 0);

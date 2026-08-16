@@ -22,6 +22,8 @@ const Reader = {
   bubbleZoomEnabled: localStorage.getItem(BUBBLE_ZOOM_KEY) !== "0",
   bubbleAltZoomEnabled: localStorage.getItem(BUBBLE_ALT_ZOOM_KEY) !== "0",
   bubbleOverlayActive: false,
+  focusMode: null,          // null | panel | bubble
+  focusAnimationTimer: null,
   _panelLoadToken: 0,      // guards against a slow detection landing on the wrong page
 
   els: {},
@@ -111,7 +113,7 @@ const Reader = {
   },
 
   async render() {
-    this.resetZoom();
+    this.resetZoom({ animate: false });
     if (this.mode === "scroll") {
       await this.renderScroll();
     } else {
@@ -266,12 +268,24 @@ const Reader = {
     this.els.bubbleAltToggle.classList.toggle("active", this.bubbleAltZoomEnabled);
   },
 
-  removeBubbleOverlay() {
-    if (this.els.bubbleOverlay) {
-      this.els.bubbleOverlay.remove();
+  removeBubbleOverlay(animate = false) {
+    const overlay = this.els.bubbleOverlay;
+    if (overlay && animate) {
+      overlay.classList.remove("active");
+      overlay.classList.add("closing");
+      setTimeout(() => {
+        if (overlay.parentNode) overlay.remove();
+      }, 260);
       this.els.bubbleOverlay = null;
+      this.bubbleOverlayActive = false;
+      this.focusMode = null;
+      this.setFocusDim(false, true);
+      return;
     }
+    if (overlay) overlay.remove();
+    this.els.bubbleOverlay = null;
     this.bubbleOverlayActive = false;
+    if (this.focusMode === "bubble") this.focusMode = null;
   },
 
   openHelpDrawer() {
@@ -432,10 +446,38 @@ const Reader = {
     else this.showChrome();
   },
 
-  resetZoom() {
+  resetZoom(opts = {}) {
+    const animate = opts.animate !== false;
     this.removeBubbleOverlay();
+    this.focusMode = null;
+    if (this.focusAnimationTimer) clearTimeout(this.focusAnimationTimer);
+    this.focusAnimationTimer = null;
+    this.setFocusDim(false, animate);
+    if (animate) this.els.viewport.classList.add("reader-focus-transition");
     this.scale = 1; this.tx = 0; this.ty = 0;
     this.applyTransform();
+    if (animate) {
+      this.focusAnimationTimer = setTimeout(() => {
+        this.els.viewport.classList.remove("reader-focus-transition");
+        this.focusAnimationTimer = null;
+      }, 360);
+    } else {
+      this.els.viewport.classList.remove("reader-focus-transition");
+    }
+  },
+  setFocusDim(active, animate = true) {
+    if (!this.els.stage) return;
+    let dim = this.els.focusDim;
+    if (!dim) {
+      dim = document.createElement("div");
+      dim.className = "reader-focus-dim";
+      dim.setAttribute("aria-hidden", "true");
+      this.els.stage.appendChild(dim);
+      this.els.focusDim = dim;
+    }
+    if (!animate) dim.classList.add("no-transition");
+    else dim.classList.remove("no-transition");
+    dim.classList.toggle("active", active);
   },
   applyTransform() {
     this.els.viewport.style.transform = `translate(${this.tx}px, ${this.ty}px) scale(${this.scale})`;
@@ -519,6 +561,12 @@ const Reader = {
       dragMoved = false;
       this.debugLog(`touchstart n=${touches.length} scale=${this.scale.toFixed(2)}`);
       if (touches.length === 2) {
+        if (this.focusMode) {
+          this.debugLog(`touchstart: ${this.focusMode} focus active; pinch disabled`);
+          dragMoved = true;
+          clearTimeout(holdTimer); holdTimer = null;
+          return;
+        }
         pinchStartDist = Math.max(1, dist(touches[0], touches[1]));
         pinchStartScale = this.scale;
         pinchStartMid = mid(touches[0], touches[1]);
@@ -541,6 +589,7 @@ const Reader = {
       if (this.mode === "scroll") return;
       touches = Array.from(e.touches);
       if (touches.length === 2) {
+        if (this.focusMode) { e.preventDefault(); dragMoved = true; return; }
         e.preventDefault();
         const d = Math.max(1, dist(touches[0], touches[1]));
         const currentMid = mid(touches[0], touches[1]);
@@ -622,7 +671,7 @@ const Reader = {
           if (panStart) {
             const dx = endTouch.clientX - panStart.x;
             const dy = endTouch.clientY - panStart.y;
-            if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+            if (!this.focusMode && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
               this.debugLog(`-> swipe page-turn dx=${dx.toFixed(0)}`);
               if (dx < 0) this.next(); else this.prev();
               panStart = null;
@@ -638,7 +687,7 @@ const Reader = {
         // Bubble Zoom Alt. If no second tap arrives, Panel Zoom gets first
         // choice when the tap lands inside a detected panel; otherwise the
         // tap only toggles the reader chrome.
-        if (!dragMoved && this.scale <= 1.02) {
+        if (!dragMoved) {
           const now = Date.now();
           const pos = { x: endTouch.clientX, y: endTouch.clientY };
           const isDouble = lastTapPos &&
@@ -709,8 +758,15 @@ const Reader = {
       }
       mouseDown = false;
     });
-    // Intentionally no dblclick handler. On touch devices, double-tap is
-    // reserved exclusively for Bubble Zoom Alt.
+    // Desktop: double-click while Panel Zoom is active exits the focused panel.
+    stage.addEventListener("dblclick", (e) => {
+      if (this.mode !== "single") return;
+      if (this.focusMode === "panel") {
+        e.preventDefault();
+        this.debugLog("desktop: double-click -> panel focus reset");
+        this.resetZoom({ animate: true });
+      }
+    });
   },
 
   async handleSingleTap(pos) {
@@ -746,12 +802,18 @@ const Reader = {
   // delayed single-tap Panel Zoom action, so a double-tap inside a bubble
   // will never briefly zoom the surrounding panel first.
   async handleDoubleTap(pos) {
-    if (this.mode !== "single" || !this.bubbleAltZoomEnabled) return;
+    if (this.mode !== "single") return;
 
     const stageRect = this.els.stage.getBoundingClientRect();
+    if (this.focusMode === "panel") {
+      this.debugLog("panel-focus: double-tap -> animated resetZoom()");
+      this.resetZoom({ animate: true });
+      return;
+    }
+    if (!this.bubbleAltZoomEnabled) return;
     if (this.bubbleOverlayActive) {
-      this.debugLog("bubble-alt: second double-tap -> resetZoom()");
-      this.resetZoom();
+      this.debugLog("bubble-alt: second double-tap -> reset bubble overlay");
+      this.removeBubbleOverlay(true);
       return;
     }
 
@@ -839,9 +901,12 @@ const Reader = {
     overlay.setAttribute("aria-hidden", "true");
     overlay.getContext("2d").drawImage(canvas, 0, 0);
 
+    this.setFocusDim(true, true);
     this.els.stage.appendChild(overlay);
     this.els.bubbleOverlay = overlay;
     this.bubbleOverlayActive = true;
+    this.focusMode = "bubble";
+    requestAnimationFrame(() => overlay.classList.add("active"));
 
     const shiftX = left - (naturalCenterX - displayW / 2);
     const shiftY = top - (naturalCenterY - displayH / 2);
@@ -899,7 +964,11 @@ const Reader = {
   },
 
   zoomToPanel(panel, stageRect, imgRect) {
+    this.focusMode = "panel";
+    this.setFocusDim(true, true);
+    this.els.viewport.classList.add("reader-focus-transition");
     this.zoomToRect(panel, stageRect, imgRect, { fillRatio: 0.96, maxScale: 5 });
+    this.debugLog("panel-focus: animated zoom in; double-tap will zoom out");
   },
 
   // Bubble zoom is allowed to go tighter and further than panel zoom, since
