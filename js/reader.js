@@ -279,16 +279,55 @@ const Reader = {
       return;
     }
     if (animate) {
+      // Play the same frame-focus transform back to its exact starting state.
+      // This mirrors the entrance animation instead of relying on a CSS
+      // transition for a dynamically-created overlay.
       if (overlay._panelZoomInAnimation) {
-        overlay._panelZoomInAnimation.cancel();
+        const entrance = overlay._panelZoomInAnimation;
+        try { entrance.cancel(); } catch (_) {}
         overlay._panelZoomInAnimation = null;
       }
-      overlay.classList.remove("active");
-      overlay.classList.add("closing");
-      overlay.style.transition = "";
-      setTimeout(() => {
-        if (overlay.parentNode) overlay.remove();
-      }, 420);
+
+      const endTransform = overlay.style.transform ||
+        `translate3d(var(--panel-dx), var(--panel-dy), 0) scale(var(--panel-scale))`;
+
+      const reverseDuration = 680;
+      this.debugLog(`panel-focus: zoom-out START duration=${reverseDuration}ms`);
+
+      const reverse = overlay.animate(
+        [
+          {
+            transform: endTransform,
+            opacity: 1,
+            boxShadow: "0 18px 44px rgba(0,0,0,.58)"
+          },
+          {
+            transform: "translate3d(0,0,0) scale(1)",
+            opacity: 1,
+            boxShadow: "0 5px 16px rgba(0,0,0,.22)"
+          }
+        ],
+        {
+          duration: reverseDuration,
+          easing: "cubic-bezier(0.22,0.78,0.24,1)",
+          fill: "forwards"
+        }
+      );
+
+      overlay._panelZoomOutAnimation = reverse;
+      reverse.onfinish = () => {
+        if (!overlay.parentNode) return;
+        overlay.style.transform = "translate3d(0,0,0) scale(1)";
+        overlay.style.boxShadow = "0 5px 16px rgba(0,0,0,.22)";
+        overlay._panelZoomOutAnimation = null;
+        overlay.remove();
+        this.debugLog("panel-focus: zoom-out COMPLETE");
+      };
+      reverse.oncancel = () => {
+        overlay._panelZoomOutAnimation = null;
+        this.debugLog("panel-focus: zoom-out CANCELLED");
+      };
+    }
     } else if (overlay.parentNode) {
       overlay.remove();
     }
@@ -1160,13 +1199,16 @@ const Reader = {
         overlay.style.transform = endTransform;
         overlay.style.opacity = "1";
         overlay.style.boxShadow = "0 18px 44px rgba(0,0,0,.58)";
-        animation.cancel();
-        overlay._panelZoomInAnimation = null;
+        // Keep the finished animation reference so the same transform can
+        // be played backwards for the focus exit.
+        overlay._panelZoomInAnimation = animation;
         this.debugLog("panel-focus: zoom-in COMPLETE");
       };
 
       animation.oncancel = () => {
-        overlay._panelZoomInAnimation = null;
+        if (overlay._panelZoomInAnimation === animation) {
+          overlay._panelZoomInAnimation = null;
+        }
         this.debugLog("panel-focus: zoom-in CANCELLED");
       };
     });
