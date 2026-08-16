@@ -749,3 +749,14 @@ button.reader-btn.mini-btn {
 }
 .bubble-zoom-alt-overlay.active { transform: scale(1); opacity: 1; }
 .bubble-zoom-alt-overlay.closing { transform: scale(0.78); opacity: 0; }
+
+/* v27: make the bottom reader controls explicitly follow chrome auto-hide. */
+.reader-chrome:not(.visible) .reader-bottombar {
+  opacity: 0;
+  transform: translateY(18px);
+  pointer-events: none;
+}
+.reader-chrome.visible .reader-bottombar {
+  opacity: 1;
+  transform: translateY(0);
+}
