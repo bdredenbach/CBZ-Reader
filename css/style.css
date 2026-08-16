@@ -654,3 +654,15 @@ button.reader-btn.mini-btn {
 @media (min-width: 700px) {
   .comic-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 }
+
+.bubble-zoom-alt-overlay {
+  position: absolute;
+  z-index: 12;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  image-rendering: auto;
+  filter: drop-shadow(0 8px 18px rgba(0,0,0,.45));
+  transform-origin: center center;
+}
