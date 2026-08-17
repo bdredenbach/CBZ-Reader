@@ -1341,7 +1341,6 @@ const Reader = {
       this.debugLog("bubble-alt: double-tap outside bubble ignored; no panel fallback");
     }
   },
-
   showBubbleOverlay(bubble, stageRect, imgRect, anchorPage = null) {
     this.removeBubbleOverlay();
     const canvas = bubble.canvas;
@@ -1351,30 +1350,25 @@ const Reader = {
     const bubbleH = bubble.h * imgRect.height;
     if (bubbleW < 8 || bubbleH < 8) return;
 
-    // Bubble Zoom must stay entirely inside the comic page.  The old
-    // version centered the enlarged bubble on the detected bubble, which
-    // could push balloons near the page edge off-screen and hide lettering.
-    const pagePadding = 8;
+    const pagePadding = Math.max(8, Math.min(18, Math.round(Math.min(imgRect.width, imgRect.height) * 0.018)));
     const availableW = Math.max(1, imgRect.width - pagePadding * 2);
     const availableH = Math.max(1, imgRect.height - pagePadding * 2);
 
-    // Prefer the usual magnification, but reduce it if the complete bubble
-    // cannot fit inside the page. This preserves the whole balloon and text.
+    const smallestDimension = Math.min(bubble.w, bubble.h);
+    const sizeBoost =
+      smallestDimension < 0.045 ? 1.28 :
+      smallestDimension < 0.075 ? 1.16 :
+      smallestDimension < 0.12 ? 1.08 : 1.0;
+
     const preferredScale = Math.min(
-      stageRect.width / (bubbleW * 1.10),
-      stageRect.height / (bubbleH * 1.10)
-    );
-    const fitScale = Math.min(
-      availableW / bubbleW,
-      availableH / bubbleH
-    );
-    const targetScale = clamp(Math.min(preferredScale, fitScale), 1.35, 6);
+      stageRect.width / (bubbleW * 1.04),
+      stageRect.height / (bubbleH * 1.04)
+    ) * sizeBoost;
+    const fitScale = Math.min(availableW / bubbleW, availableH / bubbleH);
+    const targetScale = clamp(Math.min(preferredScale, fitScale), 1.35, 7);
 
     const displayW = bubbleW * targetScale;
     const displayH = bubbleH * targetScale;
-
-    // Start from the bubble's natural center, then clamp the enlarged
-    // bubble rectangle so every part of it remains inside the comic page.
     const naturalCenterX = imgRect.left + (bubble.x + bubble.w / 2) * imgRect.width;
     const naturalCenterY = imgRect.top + (bubble.y + bubble.h / 2) * imgRect.height;
 
@@ -1382,17 +1376,8 @@ const Reader = {
     const maxLeft = imgRect.right - pagePadding - displayW;
     const minTop = imgRect.top + pagePadding;
     const maxTop = imgRect.bottom - pagePadding - displayH;
-
-    const left = clamp(
-      naturalCenterX - displayW / 2,
-      minLeft,
-      Math.max(minLeft, maxLeft)
-    );
-    const top = clamp(
-      naturalCenterY - displayH / 2,
-      minTop,
-      Math.max(minTop, maxTop)
-    );
+    const left = clamp(naturalCenterX - displayW / 2, minLeft, Math.max(minLeft, maxLeft));
+    const top = clamp(naturalCenterY - displayH / 2, minTop, Math.max(minTop, maxTop));
 
     const overlay = document.createElement("canvas");
     overlay.className = "bubble-zoom-alt-overlay";
@@ -1400,44 +1385,62 @@ const Reader = {
     overlay.height = canvas.height;
     overlay.style.width = `${displayW}px`;
     overlay.style.height = `${displayH}px`;
+    overlay.style.transformOrigin = "center center";
+    overlay.style.willChange = "transform, opacity, filter";
 
-    // Continuous-mode fix: anchor the enlarged bubble to the actual
-    // .scroll-page that was tapped. This makes the bubble part of that page's
-    // scrolling content instead of a viewport-positioned overlay. When the
-    // reader scrolls, the enlarged bubble travels with its source page.
     if (anchorPage) {
       const pageRect = anchorPage.getBoundingClientRect();
       overlay.style.left = `${left - pageRect.left}px`;
       overlay.style.top = `${top - pageRect.top}px`;
       overlay.dataset.anchorPage = anchorPage.dataset.index ?? "";
-      this.debugLog(
-        `bubble-alt: anchored to page ${Number(anchorPage.dataset.index) + 1} ` +
-        `pageOffset=(${(left - pageRect.left).toFixed(0)},${(top - pageRect.top).toFixed(0)})`
-      );
-      anchorPage.appendChild(overlay);
     } else {
       overlay.style.left = `${left - stageRect.left}px`;
       overlay.style.top = `${top - stageRect.top}px`;
-      this.els.stage.appendChild(overlay);
     }
 
     overlay.setAttribute("aria-hidden", "true");
-    overlay.getContext("2d").drawImage(canvas, 0, 0);
+    const ctx = overlay.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(canvas, 0, 0);
 
     this.setFocusDim(true, true);
+    if (anchorPage) anchorPage.appendChild(overlay);
+    else this.els.stage.appendChild(overlay);
+
     this.els.bubbleOverlay = overlay;
     this.bubbleOverlayActive = true;
     this.focusMode = "bubble";
-    requestAnimationFrame(() => overlay.classList.add("active"));
 
-    const shiftX = left - (naturalCenterX - displayW / 2);
-    const shiftY = top - (naturalCenterY - displayH / 2);
+    const zoomInDuration = 560;
+    const animation = overlay.animate(
+      [
+        { transform: "scale(.82)", opacity: 0, filter: "brightness(.92)" },
+        { transform: "scale(1.035)", opacity: 1, filter: "brightness(1.02)", offset: .72 },
+        { transform: "scale(1)", opacity: 1, filter: "brightness(1)" }
+      ],
+      { duration: zoomInDuration, easing: "cubic-bezier(.16,1,.3,1)", fill: "forwards" }
+    );
+    overlay._bubbleZoomInAnimation = animation;
+
+    animation.onfinish = () => {
+      if (!overlay.parentNode) return;
+      overlay.style.transform = "scale(1)";
+      overlay.style.opacity = "1";
+      overlay.style.filter = "brightness(1)";
+      animation.cancel();
+      overlay._bubbleZoomInAnimation = null;
+      this.debugLog("bubble: zoom-in COMPLETE");
+    };
+    animation.oncancel = () => { overlay._bubbleZoomInAnimation = null; };
+
     this.debugLog(
-      `bubble-alt: overlay ${displayW.toFixed(0)}x${displayH.toFixed(0)} ` +
-      `scale=${targetScale.toFixed(2)} ` +
-      `containShift=(${shiftX.toFixed(0)},${shiftY.toFixed(0)})`
+      `bubble: overlay ${displayW.toFixed(0)}x${displayH.toFixed(0)} ` +
+      `scale=${targetScale.toFixed(2)} sizeBoost=${sizeBoost.toFixed(2)} ` +
+      `zoom-in=${zoomInDuration}ms`
     );
   },
+
   // Zoom around an arbitrary screen-space point, keeping that point fixed
   // relative to the viewport center as the scale changes. This is the same
   // geometry used by the pinch gesture, so double-tap and pinch feel alike.
