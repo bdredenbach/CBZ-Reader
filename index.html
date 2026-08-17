@@ -59,7 +59,7 @@
 
     <div class="empty-state halftone" id="empty-state" style="display:none;">
       <h2>Your longbox is empty</h2>
-      <p>Import a .cbz file to start reading. Everything stays on this device.</p>
+      <p>Import a CBZ, ZIP, or CBT comic to start reading. Everything stays on this device.</p>
     </div>
 
     <div class="comic-grid" id="comic-grid" style="display:none;"></div>
@@ -82,7 +82,7 @@
     <div class="comic-grid" id="collection-grid"></div>
   </div>
 
-  <input type="file" id="import-input" accept=".cbz,.zip,application/zip,application/x-cbz,application/vnd.comicbook+zip,application/octet-stream" multiple style="display:none" />
+  <input type="file" id="import-input" accept=".cbz,.zip,.cbt,.tar,application/zip,application/x-cbz,application/vnd.comicbook+zip,application/x-tar,application/octet-stream" multiple style="display:none" />
 </main>
 
 <button class="import-btn" id="fab-import" style="position:fixed; right:20px; bottom:calc(20px + env(safe-area-inset-bottom,0px)); border-radius:50px; z-index:40;">+ Import</button>

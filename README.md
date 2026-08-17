@@ -4,7 +4,7 @@ A personal, offline-first CBZ comic reader designed for comfortable reading on p
 
 ## Features
 
-- Import and read `.cbz` comics locally on your device.
+- Import and read `.cbz`, `.zip`, `.cbt`, and `.tar` comics locally on your device.
 - **Page** mode for one-page-at-a-time reading.
 - **Spread** mode for two-page landscape reading.
 - **Scroll** mode for continuous horizontal reading.
@@ -21,6 +21,10 @@ A personal, offline-first CBZ comic reader designed for comfortable reading on p
 - Bookmarks and reading progress.
 - Installable as a PWA.
 - Comic data is stored locally in the browser/device.
+
+## Supported comic archives
+
+Longbox currently imports CBZ, ZIP, CBT, and TAR archives. CB7/7Z and CBR/RAR are planned for a later archive-engine pass.
 
 ## Reading controls
 
@@ -58,7 +62,7 @@ Diagnostics are off by default and do not change normal reader behavior unless e
 
 ## Release candidate
 
-**v43**
+**v44**
 
 This build is based on the known-good v37 reader. It includes the library sort/PWA install UI and fixes the install prompt listener, uses a `.webmanifest` manifest with an explicit PWA identity, hides the install control when already installed, and provides sort-direction controls in the library and collection views, with responsive toolbar spacing for smaller screens.
 
