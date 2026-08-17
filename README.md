@@ -1,0 +1,71 @@
+# Longbox — Comic Reader
+
+A personal, offline-first CBZ comic reader designed for comfortable reading on phones and tablets.
+
+## Features
+
+- Import and read `.cbz` comics locally on your device.
+- **Page** mode for one-page-at-a-time reading.
+- **Spread** mode for two-page landscape reading.
+- **Scroll** mode for continuous horizontal reading.
+- **Manga** mode for continuous right-to-left reading.
+- **Webcomic** mode for continuous vertical reading.
+- Pinch to zoom and drag to pan.
+- **Frame Zoom** in Page mode: tap a detected panel to focus it, then double-tap to return.
+- **Bubble Zoom**: double-tap a detected speech bubble to enlarge the bubble itself.
+- Hold a bubble for the alternate bubble-zoom behavior; hold again to return.
+- Bubble zoom stays anchored to the page and keeps the enlarged bubble inside the page bounds.
+- Animated focus and bubble zoom transitions.
+- Automatic control-bar hiding while reading, with controls returning when appropriate.
+- Dark, sepia, and light reading themes.
+- Bookmarks and reading progress.
+- Installable as a PWA.
+- Comic data is stored locally in the browser/device.
+
+## Reading controls
+
+Open the `?` button inside the reader for the current Reader Guide.
+
+The important gestures are:
+
+- **Swipe** — navigate according to the selected reading mode.
+- **Pinch** — zoom the full page.
+- **Drag** — pan while zoomed.
+- **Page mode only:** tap a panel to focus that frame.
+- **Double-tap a focused frame** — return to the full page.
+- **Double-tap a bubble** — Bubble Zoom.
+- **Hold a bubble** — alternate bubble zoom.
+- **Hold again** — return from the bubble zoom.
+- **Tap the center** — show or hide the reader controls.
+
+## Offline storage
+
+Longbox keeps imported comic data in browser storage on the device. The app shell is cached by the service worker so the reader can continue to launch offline.
+
+Clearing the browser/site data can remove locally stored comics and reading data, so use the app's backup feature when appropriate.
+
+## Diagnostics
+
+The release keeps a hidden on-device diagnostic log for troubleshooting real-device gesture and detection issues.
+
+To toggle it while reading:
+
+1. Tap the comic title at the top **five times quickly**.
+2. The diagnostic panel appears.
+3. Repeat the five taps to hide it.
+
+Diagnostics are off by default and do not change normal reader behavior unless enabled.
+
+## Release candidate
+
+**v38**
+
+This build is based on the known-good v37 reader and contains release/documentation cleanup only. No reading-mode or zoom behavior was changed for this release-candidate pass.
+
+## License
+
+MIT License.
+
+Copyright © 2026 bdredenbach.
+
+The MIT license applies to the software in this repository. Comic artwork imported into the reader remains subject to its original copyright and licensing terms.
