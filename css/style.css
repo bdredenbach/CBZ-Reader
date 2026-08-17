@@ -871,3 +871,15 @@ button.reader-btn.mini-btn {
   position: absolute;
   z-index: 13;
 }
+
+/* v34: continuous horizontal modes use the actual reader viewport height.
+   This prevents the first visible page from rendering at a tiny intrinsic
+   size while the viewport is settling. */
+.reader-stage.mode-scroll .page-viewport,
+.reader-stage.mode-manga .page-viewport {
+  min-height: 0;
+}
+.reader-stage.mode-scroll .scroll-page,
+.reader-stage.mode-manga .scroll-page {
+  min-height: 0;
+}
