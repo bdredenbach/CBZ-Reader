@@ -677,50 +677,50 @@ const Library = {
   },
 
   async readLibarchiveEntries(file) {
-    // libarchive-wasm is MIT-licensed and supports 7-Zip and RAR v4/v5 in
-    // addition to the formats Longbox already handles. It is loaded lazily so
-    // normal CBZ/ZIP/CBT/TAR imports do not pay the WASM startup cost.
-    if (!this._libarchive) {
-      const mod = await import(
-        "https://esm.unpkg.com/libarchive-wasm@1.2.0?bundle"
-      );
-      const wasm = await mod.libarchiveWasm();
-      this._libarchive = { ArchiveReader: mod.ArchiveReader, wasm };
-    }
-
-    const data = new Int8Array(await file.arrayBuffer());
-    const reader = new this._libarchive.ArchiveReader(this._libarchive.wasm, data);
-    const entries = [];
-
-    try {
-      for (const entry of reader.entries()) {
-        if (entry.getFiletype() !== "File") continue;
-        const name = entry.getPathname();
-        if (!IMAGE_EXT.test(name)) {
-          entry.skipData();
-          continue;
+    if (!this._filing) {
+      await new Promise((resolve, reject) => {
+        const existing = document.querySelector("script[data-longbox-filing]");
+        if (existing) {
+          existing.addEventListener("load", resolve, { once: true });
+          existing.addEventListener("error", reject, { once: true });
+          return;
         }
+        const script = document.createElement("script");
+        script.src = "https://unpkg.com/filing@1.0.0/dist/umd/filing.min.js";
+        script.dataset.longboxFiling = "true";
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Could not load the 7Z/RAR archive engine."));
+        document.head.appendChild(script);
+      });
 
-        const entryData = entry.readData(entry.getSize());
-        const copy = new Uint8Array(entryData);
-        entries.push({
-          name,
-          async getBlob() {
-            return new Blob([copy], { type: guessMime(name) });
-          },
-        });
+      if (!window.filing?.FilingBrowser) {
+        throw new Error("The 7Z/RAR archive engine loaded, but its browser API was unavailable.");
       }
-    } finally {
-      reader.free();
+
+      this._filing = new window.filing.FilingBrowser({
+        wasmUrl: "https://unpkg.com/filing@1.0.0/dist/esm/wasm/archive.wasm",
+      });
     }
 
-    entries.sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      })
-    );
-    return entries;
+    const extracted = await this._filing.extract(file);
+    return extracted
+      .filter((item) => IMAGE_EXT.test(item.pathname || item.filename || ""))
+      .sort((a, b) =>
+        (a.pathname || a.filename).localeCompare(
+          b.pathname || b.filename,
+          undefined,
+          { numeric: true, sensitivity: "base" }
+        )
+      )
+      .map((item) => ({
+        name: item.pathname || item.filename,
+        async getBlob() {
+          return item.file || new Blob(
+            [item.data],
+            { type: item.type || guessMime(item.pathname || item.filename) }
+          );
+        },
+      }));
   },
 
   async readTarEntries(file) {
