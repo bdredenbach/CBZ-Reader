@@ -1,7 +1,7 @@
 // library.js — import, sort, series bundling, and collection management
 
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp|avif)$/i;
-const ARCHIVE_EXT = /\.(cbz|zip|cbt|tar)$/i;
+const ARCHIVE_EXT = /\.(cbz|zip|cbt|tar|cb7|7z|cbr|rar)$/i;
 const SORT_KEY = "longbox_sort";
 const SORT_DIR_KEY = "longbox_sort_direction";
 
@@ -603,7 +603,7 @@ const Library = {
   async handleFiles(fileList) {
     const files = Array.from(fileList).filter((f) => ARCHIVE_EXT.test(f.name));
     if (!files.length) {
-      alert("No supported comic archives found. Longbox currently supports CBZ, ZIP, CBT, and TAR.");
+      alert("No supported comic archives found. Longbox supports CBZ, ZIP, CBT, TAR, CB7, 7Z, CBR, and RAR.");
       return;
     }
     this.els.progressEl.classList.add("active");
@@ -629,6 +629,8 @@ const Library = {
 
     if (/\.(cbt|tar)$/i.test(file.name)) {
       entries = await this.readTarEntries(file);
+    } else if (/\.(cb7|7z|cbr|rar)$/i.test(file.name)) {
+      entries = await this.readLibarchiveEntries(file);
     } else {
       const zip = await JSZip.loadAsync(file);
       entries = Object.values(zip.files)
@@ -670,6 +672,53 @@ const Library = {
       seriesKey: info.seriesKey,
     });
     return id;
+  },
+
+  async readLibarchiveEntries(file) {
+    // libarchive-wasm is MIT-licensed and supports 7-Zip and RAR v4/v5 in
+    // addition to the formats Longbox already handles. It is loaded lazily so
+    // normal CBZ/ZIP/CBT/TAR imports do not pay the WASM startup cost.
+    if (!this._libarchive) {
+      const mod = await import(
+        "https://cdn.jsdelivr.net/npm/libarchive-wasm@1.2.0/dist/index.js"
+      );
+      const wasm = await mod.libarchiveWasm();
+      this._libarchive = { ArchiveReader: mod.ArchiveReader, wasm };
+    }
+
+    const data = new Int8Array(await file.arrayBuffer());
+    const reader = new this._libarchive.ArchiveReader(this._libarchive.wasm, data);
+    const entries = [];
+
+    try {
+      for (const entry of reader.entries()) {
+        if (entry.getFiletype() !== "File") continue;
+        const name = entry.getPathname();
+        if (!IMAGE_EXT.test(name)) {
+          entry.skipData();
+          continue;
+        }
+
+        const entryData = entry.readData(entry.getSize());
+        const copy = new Uint8Array(entryData);
+        entries.push({
+          name,
+          async getBlob() {
+            return new Blob([copy], { type: guessMime(name) });
+          },
+        });
+      }
+    } finally {
+      reader.free();
+    }
+
+    entries.sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
+    return entries;
   },
 
   async readTarEntries(file) {
