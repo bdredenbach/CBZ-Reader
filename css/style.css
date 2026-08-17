@@ -886,3 +886,39 @@ button.reader-btn.mini-btn {
 
 /* v35: Bubble Zoom polish. */
 .bubble-zoom-alt-overlay { backface-visibility: hidden; -webkit-backface-visibility: hidden; image-rendering: auto; box-shadow: 0 18px 44px rgba(0,0,0,.62); }
+
+/* v39: library toolbar separation and right-aligned utility controls. */
+.library-sort-row,
+.library-action-row {
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.library-sort-row {
+  justify-content: flex-start;
+}
+
+.library-sort-row .sort-direction-btn {
+  margin-left: auto;
+}
+
+.library-action-row .library-action-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.library-action-row .install-btn {
+  margin-left: auto;
+}
+
+@media (max-width: 560px) {
+  .library-sort-row .sort-direction-btn {
+    margin-left: auto;
+  }
+  .library-action-row {
+    gap: 8px;
+  }
+}
