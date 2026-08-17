@@ -41,7 +41,6 @@ const Reader = {
     this.els.loading = document.getElementById("reader-loading");
     this.els.bookmarkFlag = document.getElementById("bookmark-flag");
     this.els.bubbleToggle = document.getElementById("bubble-zoom-toggle");
-    this.els.bubbleAltToggle = document.getElementById("bubble-alt-zoom-toggle");
     this.els.debugPanel = document.getElementById("debug-panel");
     this.els.helpDrawer = document.getElementById("help-drawer");
 
@@ -52,10 +51,8 @@ const Reader = {
     this.els.helpDrawer.addEventListener("click", (e) => {
       if (e.target === this.els.helpDrawer) this.closeHelpDrawer();
     });
-    this.els.bubbleToggle.addEventListener("click", () => this.toggleBubbleZoom());
-    this.els.bubbleAltToggle.addEventListener("click", () => this.toggleBubbleAltZoom());
+    this.els.bubbleToggle.addEventListener("click", () => this.toggleBubbleAltZoom());
     this.updateBubbleToggleUI();
-    this.updateBubbleAltToggleUI();
     this.bindDebugToggle();
 
     document.querySelectorAll(".reader-modes .mode-pill").forEach((btn) => {
@@ -69,6 +66,19 @@ const Reader = {
     });
 
     this.bindGestures();
+
+    let spreadTimer = null;
+    const settleSpread = () => {
+      if (this.mode !== "spread") return;
+      clearTimeout(spreadTimer);
+      spreadTimer = setTimeout(() => this.stabilizeSpreadLayout(), 100);
+    };
+    window.addEventListener("resize", settleSpread, { passive: true });
+    window.addEventListener("orientationchange", settleSpread, { passive: true });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", settleSpread, { passive: true });
+    }
+    screen.orientation?.addEventListener?.("change", settleSpread);
   },
 
   async open(comicId) {
@@ -128,6 +138,8 @@ const Reader = {
 
   async renderPaged() {
     this.els.stage.classList.remove("mode-scroll");
+    this.els.viewport.style.width = "";
+    this.els.viewport.style.height = "";
     this.els.viewport.innerHTML = "";
     this.els.loading.style.display = "flex";
 
@@ -138,13 +150,25 @@ const Reader = {
     const urls = await Promise.all(indices.map((i) => this.getPageUrl(i)));
     this.els.loading.style.display = "none";
     this.els.viewport.innerHTML = "";
+    const renderedImages = [];
     urls.forEach((url) => {
       if (!url) return;
       const img = document.createElement("img");
       img.src = url;
       img.draggable = false;
       this.els.viewport.appendChild(img);
+      renderedImages.push(img);
     });
+
+    if (this.mode === "spread") {
+      await Promise.all(renderedImages.map(img =>
+        img.decode
+          ? img.decode().catch(() => {})
+          : (img.complete
+              ? Promise.resolve()
+              : new Promise(resolve => img.addEventListener("load", resolve, { once: true })))
+      ));
+    }
     this.prefetch();
     this.loadPanelsForCurrentPage();
   },
@@ -267,16 +291,13 @@ const Reader = {
     this.updateBubbleToggleUI();
   },
   updateBubbleToggleUI() {
-    this.els.bubbleToggle.classList.toggle("active", this.bubbleZoomEnabled);
+    this.els.bubbleToggle.classList.toggle("active", this.bubbleAltZoomEnabled);
   },
 
   toggleBubbleAltZoom() {
     this.bubbleAltZoomEnabled = !this.bubbleAltZoomEnabled;
     localStorage.setItem(BUBBLE_ALT_ZOOM_KEY, this.bubbleAltZoomEnabled ? "1" : "0");
-    this.updateBubbleAltToggleUI();
-  },
-  updateBubbleAltToggleUI() {
-    this.els.bubbleAltToggle.classList.toggle("active", this.bubbleAltZoomEnabled);
+    this.updateBubbleToggleUI();
   },
 
   removePanelOverlay(animate = false) {
@@ -440,6 +461,29 @@ const Reader = {
     });
   },
 
+  async stabilizeSpreadLayout() {
+    if (this.mode !== "spread") return;
+
+    // Let Android/Chrome finish any orientation + visual viewport transition.
+    await new Promise(resolve => {
+      let frames = 4;
+      const tick = () => {
+        if (--frames <= 0) resolve();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+
+    if (this.mode !== "spread") return;
+    const width = this.els.stage.clientWidth;
+    const height = this.els.stage.clientHeight;
+    if (width > 0 && height > 0) {
+      this.els.viewport.style.width = `${width}px`;
+      this.els.viewport.style.height = `${height}px`;
+    }
+    this.debugLog(`spread layout settled: ${width}x${height}`);
+  },
+
   async setMode(mode) {
     if (mode === this.mode) return;
     this.debugLog(`setMode: ${this.mode} -> ${mode}`);
@@ -512,6 +556,11 @@ const Reader = {
     }
 
     await this.render();
+    if (this.mode === "spread") {
+      await this.stabilizeSpreadLayout();
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      this.debugLog(`spread final layout: ${this.els.stage.clientWidth}x${this.els.stage.clientHeight}`);
+    }
     this.showChrome();
   },
 
@@ -745,7 +794,7 @@ const Reader = {
 
     const handleContinuousDoubleTap = async (screenX, screenY) => {
       if (!this.bubbleAltZoomEnabled) {
-        this.debugLog("continuous double-tap: Bubble Zoom Alt disabled");
+        this.debugLog("continuous double-tap: Bubble Zoom disabled");
         return;
       }
       if (this.bubbleOverlayActive) {
@@ -859,7 +908,7 @@ const Reader = {
         return; // native continuous scrolling remains untouched
       } // native continuous scroll handles these modes
       // All page navigation is gesture-based. Double-tap is reserved for
-      // Bubble Zoom Alt; ordinary double-taps must never trigger page zoom.
+      // Bubble Zoom; ordinary double-taps must never trigger page zoom.
       // touch-action:none prevents the browser from stealing the gesture.
       e.preventDefault();
       touches = Array.from(e.touches);
@@ -1043,7 +1092,7 @@ const Reader = {
         }
 
         // A stationary tap waits briefly so a second tap can become
-        // Bubble Zoom Alt. If no second tap arrives, Panel Zoom gets first
+        // Bubble Zoom. If no second tap arrives, Panel Zoom gets first
         // choice when the tap lands inside a detected panel; otherwise the
         // tap only toggles the reader chrome.
         if (!dragMoved) {
@@ -1131,7 +1180,7 @@ const Reader = {
   async handleSingleTap(pos) {
     // Single tap is Panel Zoom when Panel Zoom is enabled and the tap lands
     // inside a detected panel. A short delay before this method is called
-    // gives a second tap the opportunity to become Bubble Zoom Alt instead.
+    // gives a second tap the opportunity to become Bubble Zoom instead.
     if (this.mode !== "single" || this.scale > 1.02) return;
 
     const stageRect = this.els.stage.getBoundingClientRect();
@@ -1157,7 +1206,7 @@ const Reader = {
     this.toggleChrome();
   },
 
-  // Double-tap is reserved for Bubble Zoom Alt. It has priority over the
+  // Double-tap is reserved for Bubble Zoom. It has priority over the
   // delayed single-tap Panel Zoom action, so a double-tap inside a bubble
   // will never briefly zoom the surrounding panel first.
   async handleDoubleTap(pos) {
@@ -1171,7 +1220,7 @@ const Reader = {
     }
     if (!this.bubbleAltZoomEnabled) return;
     if (this.bubbleOverlayActive) {
-      this.debugLog("bubble-alt: second double-tap -> reset bubble overlay");
+      this.debugLog("bubble: second double-tap -> reset bubble overlay");
       this.removeBubbleOverlay(true);
       return;
     }
@@ -1207,7 +1256,7 @@ const Reader = {
     const bubbleH = bubble.h * imgRect.height;
     if (bubbleW < 8 || bubbleH < 8) return;
 
-    // Bubble Zoom Alt must stay entirely inside the comic page.  The old
+    // Bubble Zoom must stay entirely inside the comic page.  The old
     // version centered the enlarged bubble on the detected bubble, which
     // could push balloons near the page edge off-screen and hide lettering.
     const pagePadding = 8;
