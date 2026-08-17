@@ -850,3 +850,14 @@ button.reader-btn.mini-btn {
   height: auto;
   max-width: none;
 }
+
+/* v30: keep theme swatches with the bubble controls. */
+.reader-options-row {
+  align-items: center;
+}
+.reader-options-row .theme-row {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
