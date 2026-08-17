@@ -678,26 +678,15 @@ const Library = {
 
   async readLibarchiveEntries(file) {
     if (!this._filing) {
-      await new Promise((resolve, reject) => {
-        const existing = document.querySelector("script[data-longbox-filing]");
-        if (existing) {
-          existing.addEventListener("load", resolve, { once: true });
-          existing.addEventListener("error", reject, { once: true });
-          return;
-        }
-        const script = document.createElement("script");
-        script.src = "https://unpkg.com/filing/dist/umd/filing.min.js";
-        script.dataset.longboxFiling = "true";
-        script.onload = resolve;
-        script.onerror = () => reject(new Error("Could not load the 7Z/RAR archive engine from the CDN. Check the network connection and try again."));
-        document.head.appendChild(script);
-      });
-
-      if (!window.filing?.FilingBrowser) {
+      // Use jsDelivr's browser ESM transformer. This avoids executing a
+      // package's UMD/CommonJS wrapper as a plain browser script.
+      const mod = await import("https://cdn.jsdelivr.net/npm/filing/+esm");
+      const FilingBrowser = mod.FilingBrowser || mod.default?.FilingBrowser;
+      if (!FilingBrowser) {
         throw new Error("The 7Z/RAR archive engine loaded, but its browser API was unavailable.");
       }
 
-      this._filing = new window.filing.FilingBrowser({
+      this._filing = new FilingBrowser({
         wasmUrl: "https://unpkg.com/filing/dist/esm/wasm/archive.wasm",
       });
     }
