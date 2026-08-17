@@ -653,6 +653,8 @@ const Reader = {
     let wasPinching = false;
     let panStart = null;
     let continuousTapStart = null;
+    let continuousHoldTimer = null;
+    let continuousHoldFired = false;
     let dragMoved = false;
     let lastTapTime = 0;
     let lastTapPos = null;
@@ -662,6 +664,133 @@ const Reader = {
 
     const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
     const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+
+    // Continuous modes keep multiple page images in the reader at once.
+    // Resolve the page/image directly under the user's finger so Bubble Zoom
+    // searches only that original comic page.
+    const getContinuousTargetAtPoint = (screenX, screenY) => {
+      if (!(this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga")) return null;
+      const pages = Array.from(this.els.stage.querySelectorAll(".scroll-page"));
+      for (const page of pages) {
+        const img = page.querySelector("img");
+        if (!img) continue;
+        const rect = img.getBoundingClientRect();
+        if (rect.width < 2 || rect.height < 2) continue;
+        if (screenX >= rect.left && screenX <= rect.right &&
+            screenY >= rect.top && screenY <= rect.bottom) {
+          const pageIndex = Number(page.dataset.index);
+          if (!Number.isInteger(pageIndex)) continue;
+          return { page, img, imgRect: rect, pageIndex };
+        }
+      }
+      return null;
+    };
+
+    const triggerContinuousHold = async (screenX, screenY) => {
+      continuousHoldFired = true;
+      continuousTapStart = null;
+
+      if (!this.bubbleZoomEnabled) {
+        this.debugLog("continuous hold: Bubble Zoom disabled");
+        return;
+      }
+      if (this.bubbleOverlayActive) {
+        this.debugLog("continuous hold: bubble overlay active -> reset bubble");
+        this.removeBubbleOverlay(true);
+        return;
+      }
+
+      const target = getContinuousTargetAtPoint(screenX, screenY);
+      if (!target) {
+        this.debugLog("continuous hold: no comic page under finger");
+        return;
+      }
+
+      const stageRect = this.els.stage.getBoundingClientRect();
+      const relXImg = clamp((screenX - target.imgRect.left) / target.imgRect.width, 0, 1);
+      const relYImg = clamp((screenY - target.imgRect.top) / target.imgRect.height, 0, 1);
+      const comicId = this.comic?.id;
+      const pageIndex = target.pageIndex;
+
+      this.debugLog(
+        `continuous hold: mode=${this.mode} page=${pageIndex + 1} ` +
+        `rel=(${relXImg.toFixed(3)},${relYImg.toFixed(3)})`
+      );
+
+      const url = await this.getPageUrl(pageIndex);
+      if (!url) {
+        this.debugLog(`continuous hold: page ${pageIndex + 1} URL unavailable`);
+        return;
+      }
+
+      const logger = this.debugMode
+        ? (msg) => this.debugLog(`[bubble-continuous] ${msg}`)
+        : null;
+      const bubble = await BubbleDetect.detect(url, relXImg, relYImg, logger);
+
+      if (!this.comic || this.comic.id !== comicId) return;
+
+      // The user may have scrolled to another position while detection ran.
+      // Re-resolve the same page/image before displaying the overlay.
+      const fresh = getContinuousTargetAtPoint(screenX, screenY);
+      const displayTarget = fresh && fresh.pageIndex === pageIndex ? fresh : target;
+
+      if (bubble) {
+        this.debugLog(`continuous hold: bubble FOUND page=${pageIndex + 1}`);
+        this.showBubbleOverlay(bubble, stageRect, displayTarget.imgRect);
+      } else {
+        this.debugLog(`continuous hold: no bubble found page=${pageIndex + 1}; no fallback zoom`);
+      }
+    };
+
+    const handleContinuousDoubleTap = async (screenX, screenY) => {
+      if (!this.bubbleAltZoomEnabled) {
+        this.debugLog("continuous double-tap: Bubble Zoom Alt disabled");
+        return;
+      }
+      if (this.bubbleOverlayActive) {
+        this.debugLog("continuous bubble-alt: double-tap -> reset bubble");
+        this.removeBubbleOverlay(true);
+        return;
+      }
+
+      const target = getContinuousTargetAtPoint(screenX, screenY);
+      if (!target) {
+        this.debugLog("continuous bubble-alt: no comic page under finger");
+        return;
+      }
+
+      const stageRect = this.els.stage.getBoundingClientRect();
+      const relXImg = clamp((screenX - target.imgRect.left) / target.imgRect.width, 0, 1);
+      const relYImg = clamp((screenY - target.imgRect.top) / target.imgRect.height, 0, 1);
+      const comicId = this.comic?.id;
+      const pageIndex = target.pageIndex;
+
+      this.debugLog(
+        `continuous bubble-alt: mode=${this.mode} page=${pageIndex + 1} ` +
+        `rel=(${relXImg.toFixed(3)},${relYImg.toFixed(3)})`
+      );
+
+      const url = await this.getPageUrl(pageIndex);
+      if (!url) return;
+
+      const logger = this.debugMode
+        ? (msg) => this.debugLog(`[bubble-alt-continuous] ${msg}`)
+        : null;
+      const bubble = await BubbleDetect.extract(url, relXImg, relYImg, logger);
+
+      if (!this.comic || this.comic.id !== comicId) return;
+
+      const fresh = getContinuousTargetAtPoint(screenX, screenY);
+      const displayTarget = fresh && fresh.pageIndex === pageIndex ? fresh : target;
+
+      if (bubble) {
+        this.debugLog(`continuous bubble-alt: bubble FOUND page=${pageIndex + 1}`);
+        this.showBubbleOverlay(bubble, stageRect, displayTarget.imgRect);
+      } else {
+        this.debugLog(`continuous bubble-alt: no bubble found page=${pageIndex + 1}`);
+      }
+    };
 
     // Long-press (hold): search for the speech bubble under the finger and
     // zoom in tight on it. Mirrors handleDoubleTap's structure — a hold
@@ -712,10 +841,22 @@ const Reader = {
 
     stage.addEventListener("touchstart", (e) => {
       if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
-        continuousTapStart = e.touches.length === 1
-          ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
-          : null;
-        return; // observe taps; native scrolling remains untouched
+        if (e.touches.length === 1) {
+          const t = e.touches[0];
+          continuousTapStart = { x: t.clientX, y: t.clientY };
+          continuousHoldFired = false;
+          clearTimeout(continuousHoldTimer);
+          continuousHoldTimer = setTimeout(
+            () => triggerContinuousHold(t.clientX, t.clientY),
+            HOLD_MS
+          );
+        } else {
+          continuousTapStart = null;
+          continuousHoldFired = false;
+          clearTimeout(continuousHoldTimer);
+          continuousHoldTimer = null;
+        }
+        return; // native continuous scrolling remains untouched
       } // native continuous scroll handles these modes
       // All page navigation is gesture-based. Double-tap is reserved for
       // Bubble Zoom Alt; ordinary double-taps must never trigger page zoom.
@@ -754,9 +895,15 @@ const Reader = {
         if (continuousTapStart && e.touches.length === 1) {
           const dx = e.touches[0].clientX - continuousTapStart.x;
           const dy = e.touches[0].clientY - continuousTapStart.y;
-          if (Math.abs(dx) > 10 || Math.abs(dy) > 10) continuousTapStart = null;
+          if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+            continuousTapStart = null;
+            clearTimeout(continuousHoldTimer);
+            continuousHoldTimer = null;
+          }
         } else if (e.touches.length !== 1) {
           continuousTapStart = null;
+          clearTimeout(continuousHoldTimer);
+          continuousHoldTimer = null;
         }
         return;
       }
@@ -809,14 +956,43 @@ const Reader = {
 
     stage.addEventListener("touchend", (e) => {
       if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
+        clearTimeout(continuousHoldTimer);
+        continuousHoldTimer = null;
         const t = e.changedTouches[0];
-        if (t && continuousTapStart &&
-            Math.abs(t.clientX - continuousTapStart.x) <= 10 &&
-            Math.abs(t.clientY - continuousTapStart.y) <= 10) {
-          this.debugLog(`continuous tap -> showChrome (${this.mode})`);
-          this.showChrome();
+        const isStationary = !!(t && continuousTapStart &&
+          Math.abs(t.clientX - continuousTapStart.x) <= 10 &&
+          Math.abs(t.clientY - continuousTapStart.y) <= 10);
+
+        if (isStationary && !continuousHoldFired) {
+          const now = Date.now();
+          const pos = { x: t.clientX, y: t.clientY };
+          const isDouble = lastTapPos &&
+            (now - lastTapTime) < 280 &&
+            Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 70;
+
+          if (isDouble) {
+            clearTimeout(pendingTapTimer);
+            pendingTapTimer = null;
+            lastTapTime = 0;
+            lastTapPos = null;
+            this.debugLog(`-> continuous bubble-alt double-tap (${pos.x.toFixed(0)},${pos.y.toFixed(0)})`);
+            handleContinuousDoubleTap(pos.x, pos.y);
+          } else {
+            clearTimeout(pendingTapTimer);
+            lastTapTime = now;
+            lastTapPos = pos;
+            pendingTapTimer = setTimeout(() => {
+              pendingTapTimer = null;
+              lastTapTime = 0;
+              lastTapPos = null;
+              this.debugLog(`continuous tap -> showChrome (${this.mode})`);
+              this.showChrome();
+            }, 280);
+          }
         }
+
         continuousTapStart = null;
+        continuousHoldFired = false;
         return;
       }
       e.preventDefault();
