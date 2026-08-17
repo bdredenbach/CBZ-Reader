@@ -112,6 +112,8 @@ const Library = {
     this.els.emptyEl = document.getElementById("empty-state");
     this.els.countEl = document.getElementById("lib-count");
     this.els.toolbar = document.getElementById("lib-toolbar");
+    this.els.continueReading = document.getElementById("continue-reading");
+    this.els.continueCard = document.getElementById("continue-card");
     this.els.progressEl = document.getElementById("import-progress");
     this.els.progressText = document.getElementById("import-progress-text");
     this.els.collectionGrid = document.getElementById("collection-grid");
@@ -227,10 +229,47 @@ const Library = {
     return arr;
   },
 
+  renderContinueReading(comics) {
+    const section = this.els.continueReading;
+    const host = this.els.continueCard;
+    if (!section || !host) return;
+
+    const candidates = comics
+      .filter((c) => c && (c.lastOpenedAt || 0) > 0 && (c.lastPage || 0) > 0 &&
+        (c.lastPage || 0) < Math.max((c.pageCount || 1) - 1, 1))
+      .sort((a, b) => (b.lastOpenedAt || 0) - (a.lastOpenedAt || 0));
+
+    const comic = candidates[0];
+    if (!comic) {
+      section.style.display = "none";
+      host.innerHTML = "";
+      return;
+    }
+
+    const page = Math.min((comic.lastPage || 0) + 1, comic.pageCount || 1);
+    const pct = progressPct(comic);
+    host.innerHTML = `
+      <div class="continue-cover"><img src="${comic.coverUrl || ""}" alt="" loading="lazy"></div>
+      <div class="continue-info">
+        <div class="continue-kicker">Pick up where you left off</div>
+        <div class="continue-title">${escapeHtml(comic.title)}</div>
+        <div class="continue-progress">Page ${page} of ${comic.pageCount || page} · ${pct}%</div>
+        <div class="continue-progress-bar"><div class="continue-progress-fill" style="width:${pct}%"></div></div>
+        <button class="primary-btn continue-btn" type="button">Continue from page ${page}</button>
+      </div>`;
+    host.querySelector(".continue-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.LongboxApp.openReader(comic.id);
+    });
+    host.addEventListener("click", () => window.LongboxApp.openReader(comic.id), { once: true });
+    section.style.display = "block";
+  },
+
   async refresh() {
     if (this.activeCollectionId) return this.refreshCollectionView();
 
     const [comics, collections] = await Promise.all([LongboxDB.getAllComics(), LongboxDB.getAllCollections()]);
+    this.renderContinueReading(comics);
     const standalone = comics.filter((c) => !c.collectionId);
 
     const totalCount = standalone.length + collections.length;
