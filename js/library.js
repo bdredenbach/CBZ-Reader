@@ -645,7 +645,9 @@ const Library = {
         }));
     }
 
-    if (!entries.length) throw new Error("No supported image pages were found in this archive.");
+    if (!entries.length) {
+      throw new Error("No supported image pages were found in this archive.");
+    }
 
     let coverUrl = null;
     for (let i = 0; i < entries.length; i++) {
@@ -680,7 +682,7 @@ const Library = {
     // normal CBZ/ZIP/CBT/TAR imports do not pay the WASM startup cost.
     if (!this._libarchive) {
       const mod = await import(
-        "https://cdn.jsdelivr.net/npm/libarchive-wasm@1.2.0/dist/index.js"
+        "https://esm.unpkg.com/libarchive-wasm@1.2.0?bundle"
       );
       const wasm = await mod.libarchiveWasm();
       this._libarchive = { ArchiveReader: mod.ArchiveReader, wasm };
