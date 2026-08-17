@@ -133,24 +133,32 @@
       </div>
 
       <div class="help-section">
-        <h3>Turning pages</h3>
-        <p><b>Swipe left</b> to go to the next page. <b>Swipe right</b> to go to the previous page. A stationary tap never turns the page.</p>
-        <p><b>Tap the middle</b> to show or hide the reader controls. Swiping is the page-navigation gesture.</p>
+        <h3>Navigation</h3>
+        <ul class="help-list">
+          <li><b>Page</b> → swipe left/right to turn pages.</li>
+          <li><b>Spread</b> → swipe left/right to turn spreads.</li>
+          <li><b>Scroll</b> → swipe horizontally through pages.</li>
+          <li><b>Manga</b> → swipe horizontally right-to-left.</li>
+          <li><b>Webcomic</b> → swipe vertically through pages.</li>
+          <li><b>Tap the middle</b> → show or hide the reader controls.</li>
+        </ul>
       </div>
 
       <div class="help-section">
         <h3>Zooming &amp; panning</h3>
         <ul class="help-list">
-          <li><b>Pinch</b> → zoom the full page</li>
-          <li><b>Drag</b> → pan while zoomed</li>
-          <li><b>Tap a panel</b> → focus that frame</li>
-          <li><b>Double-tap while focused</b> → return to full page</li>
-          <li><b>Double-tap a bubble</b> → enlarge only the bubble</li>
-          <li><b>Hold a bubble</b> → alternate bubble zoom</li>
-          <li><b>Hold again</b> → return from bubble zoom</li>
+          <li><b>Pinch</b> → zoom the full page.</li>
+          <li><b>Drag</b> → pan while zoomed.</li>
+          <li><b>Tap a panel</b> → focus that frame.</li>
+          <li><b>Double-tap a focused frame</b> → zoom back out.</li>
+          <li><b>Double-tap a bubble</b> → enlarge only the bubble.</li>
+          <li><b>Hold a bubble</b> → alternate bubble zoom.</li>
+          <li><b>Hold again</b> → zoom back out of the bubble.</li>
         </ul>
-      </div><div class="help-section">
-        <h3>Layout</h3>
+      </div>
+
+      <div class="help-section">
+        <h3>Reading layouts</h3>
         <div class="help-item" aria-hidden="true">
           <button class="mode-pill mini-btn active" tabindex="-1">Page</button>
           <button class="mode-pill mini-btn" tabindex="-1">Spread</button>
@@ -160,12 +168,14 @@
         </div>
         <ul class="help-list">
           <li><b>Page</b> → one page at a time.</li>
-          <li><b>Spread</b> → two pages side by side; requests landscape orientation when supported.</li>
-          <li><b>Scroll</b> → continuous left-to-right reading.</li>
-          <li><b>Manga</b> → continuous right-to-left reading.</li>
-          <li><b>Webcomic</b> → continuous top-to-bottom reading for webcomics/manhua.</li>
+          <li><b>Spread</b> → two pages side by side; landscape is requested when supported.</li>
+          <li><b>Scroll</b> → continuous horizontal reading.</li>
+          <li><b>Manga</b> → continuous horizontal right-to-left reading.</li>
+          <li><b>Webcomic</b> → continuous vertical reading.</li>
         </ul>
-      </div><div class="help-section">
+      </div>
+
+      <div class="help-section">
         <h3>Theme &amp; bookmark</h3>
         <div class="help-item" aria-hidden="true">
           <span class="mini-swatch dark active" tabindex="-1"></span>
@@ -173,10 +183,11 @@
           <span class="mini-swatch light" tabindex="-1"></span>
           <button class="reader-btn mini-btn help-item-spaced" tabindex="-1"><span class="reg-mark"><span class="reg-mark-ring"></span></span></button>
         </div>
-        <p>The three circles switch between dark, sepia, and light reading themes. The registration-mark icon bookmarks your current page.</p>
+        <p>The circles change the reading theme. The registration-mark icon bookmarks your current page.</p>
       </div>
     </div>
   </div>
+
 </section>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
