@@ -2,6 +2,7 @@
 
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp|avif)$/i;
 const SORT_KEY = "longbox_sort";
+const SORT_DIR_KEY = "longbox_sort_direction";
 
 // ---------------- Reusable modal ----------------
 const Modal = {
@@ -98,6 +99,7 @@ function normalizeKey(s) {
 const Library = {
   els: {},
   sort: localStorage.getItem(SORT_KEY) || "recent",
+  sortDirection: localStorage.getItem(SORT_DIR_KEY) || "",
   activeCollectionId: null,
 
   init() {
@@ -120,9 +122,11 @@ const Library = {
       e.target.value = "";
     });
 
-    document.querySelectorAll("#sort-row .pill").forEach((btn) => {
+    document.querySelectorAll("#sort-row .pill[data-sort]").forEach((btn) => {
       btn.addEventListener("click", () => this.setSort(btn.dataset.sort));
     });
+    document.getElementById("sort-direction-btn").addEventListener("click", () => this.toggleSortDirection());
+    document.getElementById("install-app-btn").addEventListener("click", () => window.LongboxApp.installPWA?.());
 
     document.getElementById("detect-series-btn").addEventListener("click", () => this.detectSeriesNow());
     document.getElementById("new-collection-btn").addEventListener("click", () => this.promptNewCollection());
@@ -154,33 +158,69 @@ const Library = {
   },
 
   setSort(sort) {
+    const changed = this.sort !== sort;
     this.sort = sort;
+    if (changed) {
+      this.sortDirection = this.defaultSortDirection(sort);
+    }
     localStorage.setItem(SORT_KEY, sort);
+    localStorage.setItem(SORT_DIR_KEY, this.sortDirection);
     this.updateSortPills();
     this.refresh();
   },
+
+  defaultSortDirection(sort) {
+    return (sort === "recent" || sort === "progress") ? "desc" : "asc";
+  },
+
+  toggleSortDirection() {
+    this.sortDirection = this.sortDirection === "asc" ? "desc" : "asc";
+    localStorage.setItem(SORT_DIR_KEY, this.sortDirection);
+    this.updateSortDirectionUI();
+    this.refresh();
+  },
+
   updateSortPills() {
-    document.querySelectorAll("#sort-row .pill").forEach((btn) => {
+    document.querySelectorAll("#sort-row .pill[data-sort]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.sort === this.sort);
     });
+    if (!this.sortDirection) {
+      this.sortDirection = this.defaultSortDirection(this.sort);
+      localStorage.setItem(SORT_DIR_KEY, this.sortDirection);
+    }
+    this.updateSortDirectionUI();
+  },
+
+  updateSortDirectionUI() {
+    const btn = document.getElementById("sort-direction-btn");
+    if (!btn) return;
+    const descending = this.sortDirection === "desc";
+    btn.textContent = descending ? "↓ Desc" : "↑ Asc";
+    btn.setAttribute("aria-label", descending ? "Sort descending" : "Sort ascending");
+    btn.title = descending ? "Sort descending" : "Sort ascending";
   },
 
   sortItems(items) {
     const arr = items.slice();
-    switch (this.sort) {
-      case "title":
-        arr.sort((a, b) => (a.title || "").localeCompare(b.title || "", undefined, { sensitivity: "base" }));
-        break;
-      case "unread":
-        arr.sort((a, b) => unreadScore(a) - unreadScore(b));
-        break;
-      case "progress":
-        arr.sort((a, b) => progressPct(b) - progressPct(a));
-        break;
-      case "recent":
-      default:
-        arr.sort((a, b) => (b.lastOpenedAt || b.addedAt || b.createdAt || 0) - (a.lastOpenedAt || a.addedAt || a.createdAt || 0));
-    }
+    const dir = this.sortDirection === "desc" ? -1 : 1;
+    arr.sort((a, b) => {
+      let result = 0;
+      switch (this.sort) {
+        case "title":
+          result = (a.title || "").localeCompare(b.title || "", undefined, { sensitivity: "base" });
+          break;
+        case "unread":
+          result = unreadScore(a) - unreadScore(b);
+          break;
+        case "progress":
+          result = progressPct(a) - progressPct(b);
+          break;
+        case "recent":
+        default:
+          result = (a.lastOpenedAt || a.addedAt || a.createdAt || 0) - (b.lastOpenedAt || b.addedAt || b.createdAt || 0);
+      }
+      return result * dir;
+    });
     return arr;
   },
 
@@ -226,7 +266,10 @@ const Library = {
     let members = this.sortItems(comics.filter((c) => c.collectionId === col.id));
     // within a collection, default useful order is issue number when sort is "recent"
     if (this.sort === "recent") {
-      members = members.slice().sort((a, b) => (a.issueNumber ?? 999999) - (b.issueNumber ?? 999999));
+      const issueDir = this.sortDirection === "desc" ? -1 : 1;
+      members = members.slice().sort((a, b) =>
+        ((a.issueNumber ?? 999999) - (b.issueNumber ?? 999999)) * issueDir
+      );
     }
 
     this.els.collectionTitle.textContent = col.title;
