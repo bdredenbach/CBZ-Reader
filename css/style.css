@@ -1077,3 +1077,35 @@ button.reader-btn.mini-btn {
     margin-top: 2px;
   }
 }
+
+/* v53: compact previous/next issue navigation in the reader header */
+.series-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.series-nav-label {
+  min-width: 34px;
+  text-align: center;
+  font-size: .72rem;
+  font-weight: 700;
+  opacity: .78;
+  white-space: nowrap;
+}
+.series-nav-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  font-size: 24px;
+  line-height: 1;
+}
+.series-nav-btn:disabled {
+  opacity: .28;
+  cursor: default;
+}
+@media (max-width: 560px) {
+  .series-nav-label { display: none; }
+  .series-nav { gap: 1px; }
+}
