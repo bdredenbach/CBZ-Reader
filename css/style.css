@@ -1040,3 +1040,40 @@ button.reader-btn.mini-btn {
   cursor: pointer;
 }
 .library-search-clear:hover { background: rgba(127,127,127,.12); }
+
+/* v52: Continue Reading button uses the Longbox action-button treatment. */
+.continue-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 2px solid #000;
+  border-radius: 10px;
+  background: #ef3b32;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.1;
+  text-decoration: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.continue-btn:hover {
+  filter: brightness(1.08);
+}
+.continue-btn:active {
+  transform: translateY(1px);
+}
+.continue-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+@media (max-width:430px) {
+  .continue-btn {
+    width: 100%;
+    margin-top: 2px;
+  }
+}
