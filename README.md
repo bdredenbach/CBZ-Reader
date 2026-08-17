@@ -58,9 +58,9 @@ Diagnostics are off by default and do not change normal reader behavior unless e
 
 ## Release candidate
 
-**v38**
+**v40**
 
-This build is based on the known-good v37 reader and contains release/documentation cleanup only. No reading-mode or zoom behavior was changed for this release-candidate pass.
+This build is based on the known-good v37 reader. It includes the library sort/PWA install UI and fixes the install prompt listener so Chromium can be captured even when the installability event fires before DOMContentLoaded.
 
 ## License
 
