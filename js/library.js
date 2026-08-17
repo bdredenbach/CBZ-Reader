@@ -114,6 +114,9 @@ const Library = {
     this.els.toolbar = document.getElementById("lib-toolbar");
     this.els.continueReading = document.getElementById("continue-reading");
     this.els.continueCard = document.getElementById("continue-card");
+    this.els.searchWrap = document.getElementById("library-search-wrap");
+    this.els.searchInput = document.getElementById("library-search");
+    this.els.searchClear = document.getElementById("library-search-clear");
     this.els.progressEl = document.getElementById("import-progress");
     this.els.progressText = document.getElementById("import-progress-text");
     this.els.collectionGrid = document.getElementById("collection-grid");
@@ -129,6 +132,19 @@ const Library = {
       btn.addEventListener("click", () => this.setSort(btn.dataset.sort));
     });
     document.getElementById("sort-direction-btn").addEventListener("click", () => this.toggleSortDirection());
+
+    this.els.searchInput.addEventListener("input", () => {
+      this.searchQuery = this.els.searchInput.value.trim().toLowerCase();
+      this.updateSearchUI();
+      this.refresh();
+    });
+    this.els.searchClear.addEventListener("click", () => {
+      this.els.searchInput.value = "";
+      this.searchQuery = "";
+      this.updateSearchUI();
+      this.refresh();
+      this.els.searchInput.focus();
+    });
     document.getElementById("collection-sort-direction-btn").addEventListener("click", () => this.toggleSortDirection());
     document.getElementById("install-app-btn").addEventListener("click", () => window.LongboxApp.installPWA?.());
 
@@ -144,13 +160,35 @@ const Library = {
     document.getElementById("collection-menu").addEventListener("click", () => this.openCollectionMenu(this.activeCollectionId));
 
     this.updateSortPills();
+    this.els.searchWrap.style.display = "block";
+    this.updateSearchUI();
     this.refresh();
+  },
+
+  updateSearchUI() {
+    const hasSearch = !!this.searchQuery;
+    if (this.els.searchClear) {
+      this.els.searchClear.style.visibility = hasSearch ? "visible" : "hidden";
+    }
+  },
+
+  matchesSearch(comic) {
+    if (!this.searchQuery) return true;
+    const fields = [
+      comic.title,
+      comic.fileName,
+      comic.seriesTitle,
+      comic.seriesKey,
+      comic.issueNumber != null ? String(comic.issueNumber) : "",
+    ];
+    return fields.some((value) => String(value || "").toLowerCase().includes(this.searchQuery));
   },
 
   showRoot() {
     this.activeCollectionId = null;
     this.els.collectionView.style.display = "none";
     this.els.root.style.display = "block";
+    this.els.searchWrap.style.display = "block";
     this.refresh();
   },
 
@@ -158,6 +196,7 @@ const Library = {
     this.activeCollectionId = id;
     this.els.root.style.display = "none";
     this.els.collectionView.style.display = "block";
+    this.els.searchWrap.style.display = "none";
     this.updateSortPills();
     this.refreshCollectionView();
   },
@@ -270,7 +309,8 @@ const Library = {
 
     const [comics, collections] = await Promise.all([LongboxDB.getAllComics(), LongboxDB.getAllCollections()]);
     this.renderContinueReading(comics);
-    const standalone = comics.filter((c) => !c.collectionId);
+    const filteredComics = comics.filter((c) => this.matchesSearch(c));
+    const standalone = filteredComics.filter((c) => !c.collectionId);
 
     const totalCount = standalone.length + collections.length;
     this.els.countEl.textContent = comics.length ? `${comics.length} book${comics.length === 1 ? "" : "s"}` : "";
@@ -295,7 +335,10 @@ const Library = {
       };
     });
 
-    const items = this.sortItems([...standalone, ...enrichedCollections]);
+    const searchableCollections = this.searchQuery
+      ? enrichedCollections.filter((c) => String(c.title || "").toLowerCase().includes(this.searchQuery))
+      : enrichedCollections;
+    const items = this.sortItems([...standalone, ...searchableCollections]);
     items.forEach((item) => {
       this.els.gridEl.appendChild(item._isCollection ? this.renderCollectionCard(item) : this.renderComicCard(item));
     });
