@@ -4,16 +4,6 @@ const LongboxApp = {
   deferredInstallPrompt: null,
 
   init() {
-    window.addEventListener("beforeinstallprompt", (event) => {
-      event.preventDefault();
-      this.deferredInstallPrompt = event;
-      this.updateInstallButton();
-    });
-
-    window.addEventListener("appinstalled", () => {
-      this.deferredInstallPrompt = null;
-      this.updateInstallButton();
-    });
     Library.init();
     Reader.init();
 
@@ -54,8 +44,15 @@ const LongboxApp = {
 
     const promptEvent = this.deferredInstallPrompt;
     this.deferredInstallPrompt = null;
-    promptEvent.prompt();
-    await promptEvent.userChoice.catch(() => null);
+
+    try {
+      const result = await promptEvent.prompt();
+      console.info("Longbox install prompt:", result?.outcome || "shown");
+      await promptEvent.userChoice.catch(() => null);
+    } catch (err) {
+      console.warn("Longbox install prompt failed:", err);
+    }
+
     this.updateInstallButton();
   },
 
@@ -71,6 +68,19 @@ const LongboxApp = {
     Library.refresh();
   },
 };
+
+// Register install lifecycle listeners immediately so a fast page load
+// cannot fire before DOMContentLoaded calls LongboxApp.init().
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  LongboxApp.deferredInstallPrompt = event;
+  LongboxApp.updateInstallButton();
+});
+
+window.addEventListener("appinstalled", () => {
+  LongboxApp.deferredInstallPrompt = null;
+  LongboxApp.updateInstallButton();
+});
 
 window.LongboxApp = LongboxApp;
 document.addEventListener("DOMContentLoaded", () => LongboxApp.init());
