@@ -686,10 +686,10 @@ const Library = {
           return;
         }
         const script = document.createElement("script");
-        script.src = "https://unpkg.com/filing@1.0.0/dist/umd/filing.min.js";
+        script.src = "https://unpkg.com/filing/dist/umd/filing.min.js";
         script.dataset.longboxFiling = "true";
         script.onload = resolve;
-        script.onerror = () => reject(new Error("Could not load the 7Z/RAR archive engine."));
+        script.onerror = () => reject(new Error("Could not load the 7Z/RAR archive engine from the CDN. Check the network connection and try again."));
         document.head.appendChild(script);
       });
 
@@ -698,7 +698,7 @@ const Library = {
       }
 
       this._filing = new window.filing.FilingBrowser({
-        wasmUrl: "https://unpkg.com/filing@1.0.0/dist/esm/wasm/archive.wasm",
+        wasmUrl: "https://unpkg.com/filing/dist/esm/wasm/archive.wasm",
       });
     }
 
