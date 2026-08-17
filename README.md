@@ -58,9 +58,9 @@ Diagnostics are off by default and do not change normal reader behavior unless e
 
 ## Release candidate
 
-**v41**
+**v42**
 
-This build is based on the known-good v37 reader. It includes the library sort/PWA install UI and fixes the install prompt listener and uses a `.webmanifest` manifest with an explicit PWA identity, matching the known-good install configuration used by the user's other app.
+This build is based on the known-good v37 reader. It includes the library sort/PWA install UI and fixes the install prompt listener, uses a `.webmanifest` manifest with an explicit PWA identity, hides the install control when already installed, and provides sort-direction controls in the library and collection views.
 
 ## License
 
