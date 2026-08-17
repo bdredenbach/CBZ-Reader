@@ -36,6 +36,10 @@ const Reader = {
     this.els.viewport = document.getElementById("page-viewport");
     this.els.chrome = document.getElementById("reader-chrome");
     this.els.title = document.getElementById("reader-title");
+    this.els.seriesNav = document.getElementById("series-nav");
+    this.els.seriesPrev = document.getElementById("series-prev");
+    this.els.seriesNext = document.getElementById("series-next");
+    this.els.seriesNavLabel = document.getElementById("series-nav-label");
     this.els.slider = document.getElementById("page-slider");
     this.els.sliderLabel = document.getElementById("page-slider-label");
     this.els.loading = document.getElementById("reader-loading");
@@ -46,6 +50,8 @@ const Reader = {
 
     document.getElementById("reader-back").addEventListener("click", () => this.close());
     document.getElementById("reader-bookmark").addEventListener("click", () => this.toggleBookmark());
+    this.els.seriesPrev.addEventListener("click", () => this.openAdjacentIssue(-1));
+    this.els.seriesNext.addEventListener("click", () => this.openAdjacentIssue(1));
     document.getElementById("reader-help").addEventListener("click", () => this.openHelpDrawer());
     document.getElementById("help-drawer-close").addEventListener("click", () => this.closeHelpDrawer());
     this.els.helpDrawer.addEventListener("click", (e) => {
@@ -105,6 +111,71 @@ const Reader = {
     screen.orientation?.addEventListener?.("change", settleContinuous);
   },
 
+  async getSeriesIssues() {
+    if (!this.comic) return [];
+    const comics = await LongboxDB.getAllComics();
+    const key = this.comic.seriesKey;
+    const title = this.comic.seriesTitle;
+    if (!key && !title) return [];
+
+    return comics
+      .filter((c) => c && c.id != null)
+      .filter((c) => {
+        if (key && c.seriesKey) return c.seriesKey === key;
+        return title && c.seriesTitle &&
+          c.seriesTitle.trim().toLowerCase() === title.trim().toLowerCase();
+      })
+      .sort((a, b) => {
+        const ai = a.issueNumber == null ? 999999 : Number(a.issueNumber);
+        const bi = b.issueNumber == null ? 999999 : Number(b.issueNumber);
+        return ai - bi || String(a.title || "").localeCompare(String(b.title || ""));
+      });
+  },
+
+  async updateSeriesNavigation() {
+    if (!this.comic || (!this.comic.seriesKey && !this.comic.seriesTitle)) {
+      this.els.seriesNav.style.display = "none";
+      return;
+    }
+    const issues = await this.getSeriesIssues();
+    const index = issues.findIndex((c) => c.id === this.comic.id);
+    if (index < 0 || issues.length < 2) {
+      this.els.seriesNav.style.display = "none";
+      return;
+    }
+
+    const prev = issues[index - 1] || null;
+    const next = issues[index + 1] || null;
+    this.els.seriesNav.style.display = "flex";
+    this.els.seriesPrev.disabled = !prev;
+    this.els.seriesNext.disabled = !next;
+
+    const issueText = this.comic.issueNumber != null
+      ? `#${this.comic.issueNumber}`
+      : `${index + 1}/${issues.length}`;
+    this.els.seriesNavLabel.textContent = issueText;
+
+    this.els.seriesPrev.title = prev
+      ? `Previous issue${prev.issueNumber != null ? ` (#${prev.issueNumber})` : ""}`
+      : "No previous issue";
+    this.els.seriesNext.title = next
+      ? `Next issue${next.issueNumber != null ? ` (#${next.issueNumber})` : ""}`
+      : "No next issue";
+    this.els.seriesPrev.setAttribute("aria-label", this.els.seriesPrev.title);
+    this.els.seriesNext.setAttribute("aria-label", this.els.seriesNext.title);
+  },
+
+  async openAdjacentIssue(direction) {
+    const issues = await this.getSeriesIssues();
+    const index = issues.findIndex((c) => c.id === this.comic?.id);
+    if (index < 0) return;
+    const target = issues[index + direction];
+    if (!target) return;
+    this.saveProgress();
+    this.revokeAll();
+    await this.open(target.id);
+  },
+
   async open(comicId) {
     this.comic = await LongboxDB.getComic(comicId);
     if (!this.comic) return;
@@ -117,6 +188,7 @@ const Reader = {
 
     this.els.title.textContent = this.comic.title;
     this.els.slider.max = this.comic.pageCount - 1;
+    await this.updateSeriesNavigation();
     this.applyTheme();
     this.applyModeClass();
     this.updateModePills();
