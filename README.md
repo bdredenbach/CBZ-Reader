@@ -58,9 +58,9 @@ Diagnostics are off by default and do not change normal reader behavior unless e
 
 ## Release candidate
 
-**v40**
+**v41**
 
-This build is based on the known-good v37 reader. It includes the library sort/PWA install UI and fixes the install prompt listener so Chromium can be captured even when the installability event fires before DOMContentLoaded.
+This build is based on the known-good v37 reader. It includes the library sort/PWA install UI and fixes the install prompt listener and uses a `.webmanifest` manifest with an explicit PWA identity, matching the known-good install configuration used by the user's other app.
 
 ## License
 

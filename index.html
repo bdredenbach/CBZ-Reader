@@ -5,7 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Longbox — Comic Reader</title>
 <meta name="theme-color" content="#0d0d0f" />
-<link rel="manifest" href="manifest.json" />
+<link rel="manifest" href="manifest.webmanifest" />
+<script>
+  // Keep the manifest link available even if the document is restored from
+  // an unusual cached or embedded state.
+  (function () {
+    try {
+      if (!document.querySelector('link[rel="manifest"]')) {
+        const link = document.createElement('link');
+        link.rel = 'manifest';
+        link.href = './manifest.webmanifest';
+        (document.head || document.documentElement).appendChild(link);
+      }
+    } catch (e) {}
+  })();
+</script>
 <link rel="icon" href="icons/icon-192.png" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
