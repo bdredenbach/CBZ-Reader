@@ -1,6 +1,7 @@
 // library.js — import, sort, series bundling, and collection management
 
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp|avif)$/i;
+const ARCHIVE_EXT = /\.(cbz|zip|cbt|tar)$/i;
 const SORT_KEY = "longbox_sort";
 const SORT_DIR_KEY = "longbox_sort_direction";
 
@@ -600,9 +601,9 @@ const Library = {
 
   // ---------------- Import ----------------
   async handleFiles(fileList) {
-    const files = Array.from(fileList).filter((f) => /\.cbz$/i.test(f.name) || /\.zip$/i.test(f.name));
+    const files = Array.from(fileList).filter((f) => ARCHIVE_EXT.test(f.name));
     if (!files.length) {
-      alert("No .cbz or .zip files found in that selection. If your files appeared grayed out, look for an \"All files\" option in the picker's filter menu (top right, usually three dots).");
+      alert("No supported comic archives found. Longbox currently supports CBZ, ZIP, CBT, and TAR.");
       return;
     }
     this.els.progressEl.classList.add("active");
@@ -623,27 +624,36 @@ const Library = {
   },
 
   async importCbz(file) {
-    const zip = await JSZip.loadAsync(file);
-    const entries = Object.values(zip.files)
-      .filter((f) => !f.dir && IMAGE_EXT.test(f.name))
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
-
-    if (!entries.length) throw new Error("No images found inside archive");
-
     const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    let coverUrl = null;
+    let entries;
 
-    for (let i = 0; i < entries.length; i++) {
-      this.els.progressText.textContent = `Importing ${file.name}… (${i + 1}/${entries.length})`;
-      const blob = await entries[i].async("blob");
-      const typedBlob = blob.type ? blob : new Blob([blob], { type: guessMime(entries[i].name) });
-      await LongboxDB.putPage(id, i, typedBlob);
-      if (i === 0) {
-        coverUrl = await blobToDataUrl(await makeThumbnail(typedBlob));
-      }
+    if (/\.(cbt|tar)$/i.test(file.name)) {
+      entries = await this.readTarEntries(file);
+    } else {
+      const zip = await JSZip.loadAsync(file);
+      entries = Object.values(zip.files)
+        .filter((f) => !f.dir && IMAGE_EXT.test(f.name))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }))
+        .map((entry) => ({
+          name: entry.name,
+          async getBlob() {
+            const blob = await entry.async("blob");
+            return blob.type ? blob : new Blob([blob], { type: guessMime(entry.name) });
+          },
+        }));
     }
 
-    const title = file.name.replace(/\.(cbz|zip)$/i, "");
+    if (!entries.length) throw new Error("No supported image pages were found in this archive.");
+
+    let coverUrl = null;
+    for (let i = 0; i < entries.length; i++) {
+      this.els.progressText.textContent = `Importing ${file.name}… (${i + 1}/${entries.length})`;
+      const typedBlob = await entries[i].getBlob();
+      await LongboxDB.putPage(id, i, typedBlob);
+      if (i === 0) coverUrl = await blobToDataUrl(await makeThumbnail(typedBlob));
+    }
+
+    const title = file.name.replace(ARCHIVE_EXT, "");
     const info = parseSeriesInfo(title);
 
     await LongboxDB.addComic({
@@ -660,6 +670,54 @@ const Library = {
       seriesKey: info.seriesKey,
     });
     return id;
+  },
+
+  async readTarEntries(file) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const entries = [];
+    let offset = 0;
+
+    const readString = (start, length) => {
+      const slice = bytes.subarray(start, start + length);
+      let end = 0;
+      while (end < slice.length && slice[end] !== 0) end++;
+      return new TextDecoder().decode(slice.subarray(0, end)).trim();
+    };
+    const readOctal = (start, length) => {
+      const raw = readString(start, length).trim();
+      return raw ? (parseInt(raw, 8) || 0) : 0;
+    };
+
+    while (offset + 512 <= bytes.length) {
+      const header = bytes.subarray(offset, offset + 512);
+      let allZero = true;
+      for (let i = 0; i < header.length; i++) {
+        if (header[i] !== 0) { allZero = false; break; }
+      }
+      if (allZero) break;
+
+      const name = readString(offset, 100);
+      const prefix = readString(offset + 345, 155);
+      const fullName = prefix ? `${prefix}/${name}` : name;
+      const size = readOctal(offset + 124, 12);
+      const type = String.fromCharCode(bytes[offset + 156] || 0);
+      const dataStart = offset + 512;
+
+      if ((type === "\0" || type === "0") && IMAGE_EXT.test(fullName)) {
+        if (dataStart + size > bytes.length) throw new Error("The TAR archive appears to be truncated.");
+        const copy = bytes.slice(dataStart, dataStart + size);
+        entries.push({
+          name: fullName,
+          async getBlob() {
+            return new Blob([copy], { type: guessMime(fullName) });
+          },
+        });
+      }
+      offset = dataStart + Math.ceil(size / 512) * 512;
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+    return entries;
   },
 
   // After an import batch, look for standalone comics (new + pre-existing) that
