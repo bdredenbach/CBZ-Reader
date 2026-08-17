@@ -6,6 +6,7 @@ const LongboxApp = {
   init() {
     Library.init();
     Reader.init();
+    this.updateInstallButton();
 
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

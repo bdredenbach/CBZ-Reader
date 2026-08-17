@@ -122,10 +122,11 @@ const Library = {
       e.target.value = "";
     });
 
-    document.querySelectorAll("#sort-row .pill[data-sort]").forEach((btn) => {
+    document.querySelectorAll("#sort-row .pill[data-sort], #collection-sort-row .pill[data-sort]").forEach((btn) => {
       btn.addEventListener("click", () => this.setSort(btn.dataset.sort));
     });
     document.getElementById("sort-direction-btn").addEventListener("click", () => this.toggleSortDirection());
+    document.getElementById("collection-sort-direction-btn").addEventListener("click", () => this.toggleSortDirection());
     document.getElementById("install-app-btn").addEventListener("click", () => window.LongboxApp.installPWA?.());
 
     document.getElementById("detect-series-btn").addEventListener("click", () => this.detectSeriesNow());
@@ -154,6 +155,7 @@ const Library = {
     this.activeCollectionId = id;
     this.els.root.style.display = "none";
     this.els.collectionView.style.display = "block";
+    this.updateSortPills();
     this.refreshCollectionView();
   },
 
@@ -181,7 +183,7 @@ const Library = {
   },
 
   updateSortPills() {
-    document.querySelectorAll("#sort-row .pill[data-sort]").forEach((btn) => {
+    document.querySelectorAll("#sort-row .pill[data-sort], #collection-sort-row .pill[data-sort]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.sort === this.sort);
     });
     if (!this.sortDirection) {
@@ -192,12 +194,12 @@ const Library = {
   },
 
   updateSortDirectionUI() {
-    const btn = document.getElementById("sort-direction-btn");
-    if (!btn) return;
     const descending = this.sortDirection === "desc";
-    btn.textContent = descending ? "↓ Desc" : "↑ Asc";
-    btn.setAttribute("aria-label", descending ? "Sort descending" : "Sort ascending");
-    btn.title = descending ? "Sort descending" : "Sort ascending";
+    document.querySelectorAll("#sort-direction-btn, #collection-sort-direction-btn").forEach((btn) => {
+      btn.textContent = descending ? "↓ Desc" : "↑ Asc";
+      btn.setAttribute("aria-label", descending ? "Sort descending" : "Sort ascending");
+      btn.title = descending ? "Sort descending" : "Sort ascending";
+    });
   },
 
   sortItems(items) {
