@@ -79,6 +79,30 @@ const Reader = {
       window.visualViewport.addEventListener("resize", settleSpread, { passive: true });
     }
     screen.orientation?.addEventListener?.("change", settleSpread);
+
+    let continuousTimer = null;
+    const settleContinuous = () => {
+      if (!(this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) return;
+      clearTimeout(continuousTimer);
+      continuousTimer = setTimeout(async () => {
+        await this.stabilizeContinuousLayout();
+        if (this.mode === "scroll" || this.mode === "manga") {
+          const h = this.els.stage.clientHeight;
+          if (h > 0) {
+            this.els.viewport.style.height = `${h}px`;
+            this.els.stage.querySelectorAll(".scroll-page").forEach(wrap => {
+              wrap.style.height = `${h}px`;
+            });
+          }
+        }
+      }, 100);
+    };
+    window.addEventListener("resize", settleContinuous, { passive: true });
+    window.addEventListener("orientationchange", settleContinuous, { passive: true });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", settleContinuous, { passive: true });
+    }
+    screen.orientation?.addEventListener?.("change", settleContinuous);
   },
 
   async open(comicId) {
@@ -173,7 +197,39 @@ const Reader = {
     this.loadPanelsForCurrentPage();
   },
 
+  async stabilizeContinuousLayout() {
+    if (!(this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) return;
+
+    // On first entry Android can still be settling the reader viewport. Wait
+    // for a couple of frames before using its dimensions for page sizing.
+    await new Promise(resolve => {
+      let frames = 3;
+      const tick = () => {
+        if (--frames <= 0) resolve();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+
+    if (!(this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) return;
+
+    const stage = this.els.stage;
+    const viewport = this.els.viewport;
+    const width = stage.clientWidth;
+    const height = stage.clientHeight;
+
+    if (width > 0 && height > 0) {
+      viewport.style.height = `${height}px`;
+      if (this.mode === "webcomic") {
+        viewport.style.width = `${width}px`;
+      }
+    }
+
+    this.debugLog(`continuous layout settled: ${this.mode} ${width}x${height}`);
+  },
+
   async renderContinuous() {
+    await this.stabilizeContinuousLayout();
     const horizontal = this.mode === "scroll" || this.mode === "manga";
     const rtl = this.mode === "manga";
     this.els.stage.classList.toggle("mode-scroll", this.mode === "scroll");
@@ -196,6 +252,35 @@ const Reader = {
     }
     this.els.viewport.appendChild(frag);
 
+    if (horizontal) {
+      const pageHeight = this.els.stage.clientHeight;
+      if (pageHeight > 0) {
+        this.els.viewport.style.height = `${pageHeight}px`;
+        this.els.stage.querySelectorAll(".scroll-page").forEach(wrap => {
+          wrap.style.height = `${pageHeight}px`;
+        });
+      }
+    }
+
+    // Load the current page immediately. IntersectionObserver remains
+    // responsible for the rest of the continuous document.
+    const currentWrap = this.els.stage.querySelector(
+      `.scroll-page[data-index="${this.index}"]`
+    );
+    if (currentWrap) {
+      const currentImg = currentWrap.querySelector("img");
+      if (currentImg && currentImg.dataset.src === "pending") {
+        currentImg.dataset.src = "loading";
+        const currentUrl = await this.getPageUrl(this.index);
+        if (currentUrl) {
+          currentImg.src = currentUrl;
+          if (currentImg.decode) {
+            await currentImg.decode().catch(() => {});
+          }
+        }
+      }
+    }
+
     const io = new IntersectionObserver((entries) => {
       entries.forEach(async (entry) => {
         const wrap = entry.target;
@@ -217,6 +302,16 @@ const Reader = {
 
     this.els.stage.querySelectorAll(".scroll-page").forEach((el) => io.observe(el));
     this._scrollObserver = io;
+
+    if (horizontal) {
+      const settledHeight = this.els.stage.clientHeight;
+      if (settledHeight > 0) {
+        this.els.viewport.style.height = `${settledHeight}px`;
+        this.els.stage.querySelectorAll(".scroll-page").forEach(wrap => {
+          wrap.style.height = `${settledHeight}px`;
+        });
+      }
+    }
 
     requestAnimationFrame(() => {
       const target = this.els.stage.querySelector(`.scroll-page[data-index="${this.index}"]`);
