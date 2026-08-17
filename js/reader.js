@@ -737,7 +737,7 @@ const Reader = {
 
       if (bubble) {
         this.debugLog(`continuous hold: bubble FOUND page=${pageIndex + 1}`);
-        this.showBubbleOverlay(bubble, stageRect, displayTarget.imgRect);
+        this.showBubbleOverlay(bubble, stageRect, displayTarget.imgRect, displayTarget.page);
       } else {
         this.debugLog(`continuous hold: no bubble found page=${pageIndex + 1}; no fallback zoom`);
       }
@@ -786,7 +786,7 @@ const Reader = {
 
       if (bubble) {
         this.debugLog(`continuous bubble-alt: bubble FOUND page=${pageIndex + 1}`);
-        this.showBubbleOverlay(bubble, stageRect, displayTarget.imgRect);
+        this.showBubbleOverlay(bubble, stageRect, displayTarget.imgRect, displayTarget.page);
       } else {
         this.debugLog(`continuous bubble-alt: no bubble found page=${pageIndex + 1}`);
       }
@@ -1198,7 +1198,7 @@ const Reader = {
     }
   },
 
-  showBubbleOverlay(bubble, stageRect, imgRect) {
+  showBubbleOverlay(bubble, stageRect, imgRect, anchorPage = null) {
     this.removeBubbleOverlay();
     const canvas = bubble.canvas;
     if (!canvas) return;
@@ -1256,13 +1256,31 @@ const Reader = {
     overlay.height = canvas.height;
     overlay.style.width = `${displayW}px`;
     overlay.style.height = `${displayH}px`;
-    overlay.style.left = `${left - stageRect.left}px`;
-    overlay.style.top = `${top - stageRect.top}px`;
+
+    // Continuous-mode fix: anchor the enlarged bubble to the actual
+    // .scroll-page that was tapped. This makes the bubble part of that page's
+    // scrolling content instead of a viewport-positioned overlay. When the
+    // reader scrolls, the enlarged bubble travels with its source page.
+    if (anchorPage) {
+      const pageRect = anchorPage.getBoundingClientRect();
+      overlay.style.left = `${left - pageRect.left}px`;
+      overlay.style.top = `${top - pageRect.top}px`;
+      overlay.dataset.anchorPage = anchorPage.dataset.index ?? "";
+      this.debugLog(
+        `bubble-alt: anchored to page ${Number(anchorPage.dataset.index) + 1} ` +
+        `pageOffset=(${(left - pageRect.left).toFixed(0)},${(top - pageRect.top).toFixed(0)})`
+      );
+      anchorPage.appendChild(overlay);
+    } else {
+      overlay.style.left = `${left - stageRect.left}px`;
+      overlay.style.top = `${top - stageRect.top}px`;
+      this.els.stage.appendChild(overlay);
+    }
+
     overlay.setAttribute("aria-hidden", "true");
     overlay.getContext("2d").drawImage(canvas, 0, 0);
 
     this.setFocusDim(true, true);
-    this.els.stage.appendChild(overlay);
     this.els.bubbleOverlay = overlay;
     this.bubbleOverlayActive = true;
     this.focusMode = "bubble";
