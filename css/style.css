@@ -927,3 +927,58 @@ button.reader-btn.mini-btn {
 .collection-sort-row {
   margin: 0 0 16px;
 }
+
+/* v43: responsive library toolbar polish.
+   Keep filters grouped on small screens while preserving a separated,
+   right-aligned direction control and utility actions. */
+.library-sort-row {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.library-sort-row .sort-direction-btn {
+  margin-left: auto;
+}
+
+.library-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.library-action-row .install-btn {
+  margin-left: auto;
+}
+
+@media (max-width: 620px) {
+  .library-sort-row .sort-direction-btn {
+    margin-left: auto;
+  }
+
+  .library-action-row .library-action-group {
+    max-width: 100%;
+  }
+
+  .library-action-row .install-btn {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 430px) {
+  .library-sort-row {
+    align-items: flex-start;
+  }
+
+  .library-sort-row .sort-direction-btn {
+    margin-left: auto;
+  }
+
+  .library-action-row {
+    justify-content: flex-start;
+  }
+
+  .library-action-row .install-btn {
+    margin-left: auto;
+  }
+}
