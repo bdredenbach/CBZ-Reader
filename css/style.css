@@ -1002,3 +1002,41 @@ button.reader-btn.mini-btn {
   .continue-cover { width:50px; }
   .continue-btn { width:100%; margin-top:2px; }
 }
+
+/* v51: Library Search */
+.library-search-wrap {
+  position: relative;
+  margin: 0 0 12px;
+}
+.library-search {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 10px 42px 10px 14px;
+  border: 2px solid #000;
+  border-radius: 12px;
+  background: var(--surface-1, #fff);
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.library-search:focus {
+  border-color: currentColor;
+  box-shadow: 0 0 0 2px rgba(127,127,127,.16);
+}
+.library-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.library-search-clear:hover { background: rgba(127,127,127,.12); }
