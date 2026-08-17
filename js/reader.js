@@ -152,7 +152,7 @@ const Reader = {
   async renderContinuous() {
     const horizontal = this.mode === "scroll" || this.mode === "manga";
     const rtl = this.mode === "manga";
-    this.els.stage.classList.toggle("mode-scroll", !horizontal);
+    this.els.stage.classList.toggle("mode-scroll", this.mode === "scroll");
     this.els.stage.classList.toggle("mode-manga", rtl);
     this.els.stage.classList.toggle("mode-webcomic", this.mode === "webcomic");
     this.els.viewport.innerHTML = "";
@@ -455,20 +455,60 @@ const Reader = {
     // Best-effort device orientation lock for Spread. Browsers only allow
     // this in contexts where the Screen Orientation API permits it (commonly
     // installed/fullscreen PWAs). Failure is intentionally harmless.
-    if (mode === "spread" && screen.orientation?.lock) {
-      try {
-        await screen.orientation.lock("landscape-primary");
-        this.debugLog("spread: landscape-primary orientation locked");
-      } catch (err) {
+    if (mode === "spread") {
+      let orientationLocked = false;
+
+      if (screen.orientation?.lock) {
         try {
-          await screen.orientation.lock("landscape");
-          this.debugLog("spread: landscape orientation locked");
-        } catch (err2) {
-          this.debugLog("spread: landscape lock unavailable; using current orientation");
+          await screen.orientation.lock("landscape-primary");
+          orientationLocked = true;
+          this.debugLog("spread: landscape-primary orientation locked");
+        } catch (err) {
+          try {
+            await screen.orientation.lock("landscape");
+            orientationLocked = true;
+            this.debugLog("spread: landscape orientation locked");
+          } catch (err2) {
+            this.debugLog("spread: normal orientation lock unavailable");
+          }
         }
       }
-    } else if (wasSpread && screen.orientation?.unlock) {
-      try { screen.orientation.unlock(); } catch (_) {}
+
+      // Android browsers commonly allow orientation locking only for an
+      // installed web app or fullscreen document. If the normal lock failed,
+      // use the user's Spread button gesture to enter fullscreen and retry.
+      if (!orientationLocked && !document.fullscreenElement && this.els.view?.requestFullscreen) {
+        try {
+          await this.els.view.requestFullscreen({ navigationUI: "hide" });
+          this.debugLog("spread: entered fullscreen for orientation lock");
+          if (screen.orientation?.lock) {
+            try {
+              await screen.orientation.lock("landscape-primary");
+              orientationLocked = true;
+              this.debugLog("spread: landscape-primary locked after fullscreen");
+            } catch (err3) {
+              try {
+                await screen.orientation.lock("landscape");
+                orientationLocked = true;
+                this.debugLog("spread: landscape locked after fullscreen");
+              } catch (err4) {}
+            }
+          }
+        } catch (fullscreenErr) {
+          this.debugLog("spread: fullscreen fallback unavailable");
+        }
+      }
+
+      if (!orientationLocked) {
+        this.debugLog("spread: landscape lock unavailable; current orientation retained");
+      }
+    } else if (wasSpread) {
+      if (screen.orientation?.unlock) {
+        try { screen.orientation.unlock(); } catch (_) {}
+      }
+      if (document.fullscreenElement && document.exitFullscreen) {
+        try { await document.exitFullscreen(); } catch (_) {}
+      }
     }
 
     await this.render();
