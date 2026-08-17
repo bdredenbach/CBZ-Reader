@@ -922,3 +922,8 @@ button.reader-btn.mini-btn {
     gap: 8px;
   }
 }
+
+/* v42: the collection view gets the same sort controls as the library root. */
+.collection-sort-row {
+  margin: 0 0 16px;
+}
