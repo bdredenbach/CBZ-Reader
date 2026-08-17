@@ -861,3 +861,13 @@ button.reader-btn.mini-btn {
   align-items: center;
   gap: 8px;
 }
+
+/* v32: Bubble Zoom overlays in continuous modes are anchored to the
+   .scroll-page that contains the tapped bubble. */
+.scroll-page {
+  position: relative;
+}
+.scroll-page .bubble-zoom-alt-overlay {
+  position: absolute;
+  z-index: 13;
+}
