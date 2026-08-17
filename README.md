@@ -24,7 +24,7 @@ A personal, offline-first CBZ comic reader designed for comfortable reading on p
 
 ## Supported comic archives
 
-Longbox currently imports CBZ, ZIP, CBT, and TAR archives. CB7/7Z and CBR/RAR are planned for a later archive-engine pass.
+Longbox imports CBZ, ZIP, CBT, TAR, CB7, 7Z, CBR, and RAR archives. 7Z/RAR extraction uses the lazily loaded libarchive-wasm browser engine.
 
 ## Reading controls
 
@@ -62,7 +62,7 @@ Diagnostics are off by default and do not change normal reader behavior unless e
 
 ## Release candidate
 
-**v44**
+**v45**
 
 This build is based on the known-good v37 reader. It includes the library sort/PWA install UI and fixes the install prompt listener, uses a `.webmanifest` manifest with an explicit PWA identity, hides the install control when already installed, and provides sort-direction controls in the library and collection views, with responsive toolbar spacing for smaller screens.
 
