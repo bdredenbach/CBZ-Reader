@@ -90,7 +90,7 @@ window.LongboxPageMode = (() => {
         width: width + "px",
         height: height + "px",
         left: Math.round((rect.width - width) / 2) + "px",
-        top: Math.max(0, Math.round((rect.height - height) / 2 - rect.height * 0.07)) + "px"
+        top: Math.max(0, Math.round((rect.height - height) / 2 - rect.height * 0.12)) + "px"
       });
 
       try {
