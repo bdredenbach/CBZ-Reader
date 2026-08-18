@@ -1243,3 +1243,15 @@ button.reader-btn.mini-btn {
   pointer-events: none;
 }
 .longbox-turn-book .turn-page { background: transparent; }
+
+
+/* v59 — preserve the comic's real page shape inside the Page Mode safe area. */
+.longbox-turn-book {
+  transform: translateZ(0);
+  max-width: none;
+  max-height: none;
+}
+.longbox-turn-page {
+  width: 100%;
+  height: 100%;
+}
