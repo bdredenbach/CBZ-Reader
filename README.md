@@ -74,7 +74,7 @@ Diagnostics are off by default and do not change normal reader behavior unless e
 
 ## Release candidate
 
-**v55**
+**v56**
 
 This build is based on the known-good v37 reader. It includes the library sort/PWA install UI and fixes the install prompt listener, uses a `.webmanifest` manifest with an explicit PWA identity, hides the install control when already installed, and provides sort-direction controls in the library and collection views, with responsive toolbar spacing for smaller screens.
 
@@ -89,3 +89,6 @@ The MIT license applies to the software in this repository. Comic artwork import
 
 ### Page transitions
 Page mode uses a 3D page-turn transition when moving forward or backward. Other reading layouts remain unchanged.
+
+### Page transitions
+Page mode uses a book-like outgoing-page turn. Other reading layouts remain unchanged.
