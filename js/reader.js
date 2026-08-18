@@ -180,6 +180,36 @@ const Reader = {
   },
 
 
+
+  initPageModeControlGuard() {
+    if (this.pageModeControlGuardInitialized) return;
+    const isPageMode = () => this.mode === "single" && !!this.pageModeEngine;
+    const isControlTarget = (target) => {
+      const el = target instanceof Element ? target : target?.parentElement;
+      return !!el?.closest(".reader-topbar, .reader-bottombar, #reader-controls-portal");
+    };
+
+    const stopPageGesture = (e) => {
+      if (!isPageMode() || !isControlTarget(e.target)) return;
+      // Stop Turn.js / reader gesture listeners registered on ancestors.
+      e.stopPropagation();
+    };
+
+    const stopTouchGesture = (e) => {
+      if (!isPageMode() || !isControlTarget(e.target)) return;
+      e.stopPropagation();
+    };
+
+    document.addEventListener("pointerdown", stopPageGesture, true);
+    document.addEventListener("pointermove", stopPageGesture, true);
+    document.addEventListener("pointerup", stopPageGesture, true);
+    document.addEventListener("touchstart", stopTouchGesture, true);
+    document.addEventListener("touchmove", stopTouchGesture, true);
+    document.addEventListener("touchend", stopTouchGesture, true);
+
+    this.pageModeControlGuardInitialized = true;
+  },
+
   initControlsPortal() {
     if (this.controlsPortalInitialized) return;
     const portal = document.getElementById("reader-controls-portal");
@@ -285,6 +315,7 @@ const Reader = {
     if (this.mode === "single") {
       if (!this.pageModeEngine) {
         this.initControlsPortal();
+      this.initPageModeControlGuard();
       this.setControlsPortalActive(true);
       this.pageModeEngine = new window.LongboxPageMode({
           getIssue: () => this.comic,
