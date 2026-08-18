@@ -92,27 +92,3 @@ Page mode uses a 3D page-turn transition when moving forward or backward. Other 
 
 ### Page transitions
 Page mode uses a book-like outgoing-page turn. Other reading layouts remain unchanged.
-
-
-## v58 — StPageFlip viewport-fit experiment
-Page mode only: StPageFlip is sized from the actual reader viewport and fills it. Spread, Scroll, Manga, and Webcomic remain on the existing renderer.
-
-
-## v59 — StPageFlip direct Page-mode experiment
-Page mode is exclusively owned by StPageFlip. The normal page renderer and page swipe handler are disabled while the engine is active. The engine is sized from the live reader viewport before initialization.
-
-
-## v60 — Isolated Page Mode
-Page mode is delegated to `js/page-mode.js`, while `reader.js` remains the shared reader coordinator. Spread/Scroll/Manga/Webcomic continue using their existing rendering paths. This is an experimental architecture for the physical page-turn engine.
-
-
-## v62 — Turn.js Page Mode experiment
-Page mode remains isolated in `js/page-mode.js`, but the renderer is now Turn.js instead of StPageFlip. Turn.js is a separate HTML5/jQuery page-flip engine with gradients and acceleration. This test loads the engine from CDN; if the curl is successful, the dependency should be vendored locally before shipping so the PWA remains offline-capable.
-
-
-## v63 — Page-mode overlay/event isolation
-Fixes v62's layering issue: the isolated Turn.js page renderer now mounts in the dedicated `#pageflip-book` overlay rather than inside the hidden page viewport. The overlay captures page-mode gestures so double-tap/hold events cannot fall through to Longbox bubble/panel handlers underneath.
-
-
-## v66 — Restore authoritative comic metadata
-v64/v65's page-inventory experiment was non-destructive in intent but could incorrectly collapse stored pageCount to 1 when the page inventory query did not match the existing database. v66 removes that experiment and restores the original Longbox behavior: the imported comic's stored `pageCount` remains authoritative. The isolated Page-mode overlay/Turn.js experiment is retained.
