@@ -1210,7 +1210,7 @@ button.reader-btn.mini-btn {
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
-  z-index: 50 !important;
+  z-index: 4 !important;
   display: none;
   overflow: hidden;
   pointer-events: auto !important;
