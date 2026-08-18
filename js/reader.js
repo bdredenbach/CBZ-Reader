@@ -19,7 +19,6 @@ const Reader = {
   _pageTurnDirection: null,
   pageFlip: null,
   pageFlipComicId: null,
-  pageFlipSyncing: false,
 
   currentPanels: [],       // detected panel rects for the visible page, fractional coords
   panelZoomEnabled: localStorage.getItem(PANEL_ZOOM_KEY) !== "0",
@@ -38,7 +37,6 @@ const Reader = {
     this.els.view = document.getElementById("reader-view");
     this.els.stage = document.getElementById("reader-stage");
     this.els.viewport = document.getElementById("page-viewport");
-    this.els.pageFlipBook = document.getElementById("pageflip-book");
     this.els.chrome = document.getElementById("reader-chrome");
     this.els.title = document.getElementById("reader-title");
     this.els.seriesNav = document.getElementById("series-nav");
@@ -205,7 +203,6 @@ const Reader = {
 
   close() {
     this.saveProgress();
-    this.destroyPageFlip();
     this.revokeAll();
     window.LongboxApp.closeReader();
   },
@@ -240,16 +237,15 @@ const Reader = {
 
   async destroyPageFlip() {
     if (this.pageFlip) {
-      try { this.pageFlip.destroy(); } catch (_) {}
+      try { this.pageFlip.destroy();
+      } catch (_) {}
     }
     this.pageFlip = null;
     this.pageFlipComicId = null;
-    this.pageFlipSyncing = false;
     if (this.els.pageFlipBook) {
       this.els.pageFlipBook.innerHTML = "";
       this.els.pageFlipBook.style.display = "none";
     }
-    this.els.viewport?.classList.remove("pageflip-source");
   },
 
   async ensurePageFlip() {
@@ -258,60 +254,56 @@ const Reader = {
 
     await this.destroyPageFlip();
 
-    const firstUrl = await this.getPageUrl(0);
-    if (!firstUrl) return null;
+    const book = this.els.pageFlipBook;
+    if (!book) return null;
 
-    const probe = new Image();
-    probe.src = firstUrl;
-    await (probe.decode ? probe.decode().catch(() => {}) :
-      (probe.complete ? Promise.resolve() : new Promise(resolve => {
-        probe.addEventListener("load", resolve, { once: true });
-        probe.addEventListener("error", resolve, { once: true });
-      })));
+    const rect = book.getBoundingClientRect();
+    const width = Math.max(180, Math.round(rect.width || this.els.viewport.clientWidth || 360));
+    const height = Math.max(260, Math.round(rect.height || this.els.viewport.clientHeight || 640));
 
-    const width = probe.naturalWidth || 600;
-    const height = probe.naturalHeight || 900;
     const urls = [];
     for (let i = 0; i < this.comic.pageCount; i++) {
       const url = await this.getPageUrl(i);
       if (url) urls.push(url);
     }
+    if (!urls.length) return null;
 
-    const book = this.els.pageFlipBook;
-    if (!book) return null;
     book.innerHTML = "";
     book.style.display = "block";
+    book.style.width = "100%";
+    book.style.height = "100%";
 
     const flip = new St.PageFlip(book, {
       width,
       height,
       size: "stretch",
       minWidth: 180,
-      maxWidth: 1400,
+      maxWidth: Math.max(180, width),
       minHeight: 260,
-      maxHeight: 2000,
+      maxHeight: Math.max(260, height),
+      autoSize: true,
       maxShadowOpacity: 0.55,
       drawShadow: true,
       flippingTime: 650,
       usePortrait: true,
       showCover: false,
-      mobileScrollSupport: false,
-      swipeDistance: 30
+      mobileScrollSupport: true,
+      swipeDistance: 30,
+      clickEventForward: true,
+      useMouseEvents: true
     });
 
     flip.on("flip", (e) => {
       if (this.mode !== "single" || !this.comic) return;
-      const nextIndex = Number(e.data);
-      if (!Number.isInteger(nextIndex)) return;
-      this.index = Math.max(0, Math.min(this.comic.pageCount - 1, nextIndex));
+      const i = Number(e.data);
+      if (!Number.isInteger(i)) return;
+      this.index = Math.max(0, Math.min(this.comic.pageCount - 1, i));
       this.updateSliderLabel();
       this.updateBookmarkFlag();
       this.saveProgress();
       this.showChrome();
-      this.debugLog(`StPageFlip flip -> page ${this.index + 1}`);
       this.loadPanelsForCurrentPage();
     });
-    flip.on("changeState", (e) => this.debugLog(`StPageFlip state=${e.data}`));
 
     flip.loadFromImages(urls);
     flip.turnToPage(this.index);
@@ -319,7 +311,6 @@ const Reader = {
     this.pageFlip = flip;
     this.pageFlipComicId = this.comic.id;
     this.els.viewport.classList.add("pageflip-source");
-    this.debugLog(`StPageFlip ready: ${urls.length} pages`);
     return flip;
   },
 
@@ -329,39 +320,44 @@ const Reader = {
     this.els.viewport.style.height = "";
 
     if (this.mode === "single") {
+      this.els.loading.style.display = "flex";
       const flip = await this.ensurePageFlip();
+
       if (flip) {
-        const url = await this.getPageUrl(this.index);
         this.els.viewport.innerHTML = "";
-        if (url) {
-          const img = document.createElement("img");
-          img.src = url;
-          img.draggable = false;
-          this.els.viewport.appendChild(img);
-        }
         this.els.loading.style.display = "none";
-        if (flip.getCurrentPageIndex() !== this.index) flip.turnToPage(this.index);
         this.updateSliderLabel();
         this.updateBookmarkFlag();
+
+        if (flip.getCurrentPageIndex() !== this.index) {
+          flip.turnToPage(this.index);
+        }
         return;
       }
+
+      await this.destroyPageFlip();
+    } else {
+      await this.destroyPageFlip();
     }
 
-    await this.destroyPageFlip();
     this.els.loading.style.display = "flex";
+
     const indices = this.mode === "spread"
-      ? [this.index, this.index + 1].filter((i) => i < this.comic.pageCount)
+      ? [this.index, this.index + 1].filter(i => i < this.comic.pageCount)
       : [this.index];
-    const urls = await Promise.all(indices.map((i) => this.getPageUrl(i)));
-    this.els.loading.style.display = "none";
+
+    const urls = await Promise.all(indices.map(i => this.getPageUrl(i)));
+
     this.els.viewport.innerHTML = "";
-    urls.forEach((url) => {
+    urls.forEach(url => {
       if (!url) return;
       const img = document.createElement("img");
       img.src = url;
       img.draggable = false;
       this.els.viewport.appendChild(img);
     });
+
+    this.els.loading.style.display = "none";
   },
 
 
@@ -723,7 +719,6 @@ const Reader = {
     if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
     const wasSpread = this.mode === "spread";
-    if (mode !== "single") await this.destroyPageFlip();
     this.mode = mode;
     this.comic.readMode = mode;
     LongboxDB.updateComic(this.comic.id, { readMode: mode });
@@ -844,14 +839,6 @@ const Reader = {
     }
 
     this.index = i;
-    if (this.mode === "single" && this.pageFlip && !opts.fromPageFlip) {
-      this.pageFlip.turnToPage(i);
-      this.updateSliderLabel();
-      this.updateBookmarkFlag();
-      this.saveProgress();
-      this.showChrome();
-      return;
-    }
     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
       const target = this.els.stage.querySelector(`.scroll-page[data-index="${i}"]`);
       if (target) target.scrollIntoView({ block: "start", behavior: opts.fromSlider ? "auto" : "smooth" });
