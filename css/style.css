@@ -1350,3 +1350,23 @@ body.page-mode-active #pageflip-book {
 body.page-mode-active #pageflip-book .longbox-turn-book {
   touch-action: pan-x !important;
 }
+
+/* v66 — dedicated Controls Portal */
+#reader-controls-portal {
+  position: fixed !important; inset: 0 !important;
+  z-index: 99999 !important; pointer-events: none !important;
+  touch-action: none !important; display: none;
+}
+#reader-controls-portal.active { display: block !important; }
+#reader-controls-portal-top,#reader-controls-portal-bottom {
+  position: absolute !important; left: 0 !important; right: 0 !important;
+  pointer-events: none !important;
+}
+#reader-controls-portal-top { top: 0 !important; }
+#reader-controls-portal-bottom { bottom: 0 !important; }
+#reader-controls-portal button,#reader-controls-portal input,
+#reader-controls-portal select,#reader-controls-portal a,
+#reader-controls-portal [role="button"] {
+  pointer-events: auto !important; touch-action: manipulation !important;
+  position: relative !important; z-index: 100000 !important;
+}
