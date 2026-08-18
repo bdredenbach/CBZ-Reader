@@ -250,16 +250,33 @@ const Reader = {
 
   async ensurePageFlip() {
     if (this.mode !== "single" || !this.comic || !window.St?.PageFlip) return null;
-    if (this.pageFlip && this.pageFlipComicId === this.comic.id) return this.pageFlip;
+    if (this.pageFlip && this.pageFlipComicId === this.comic.id) {
+      const book = this.els.pageFlipBook;
+      if (book) {
+        const rect = book.getBoundingClientRect();
+        if (rect.width > 20 && rect.height > 20) {
+          return this.pageFlip;
+        }
+      }
+    }
 
     await this.destroyPageFlip();
 
     const book = this.els.pageFlipBook;
     if (!book) return null;
 
+    book.style.display = "block";
+    book.style.position = "absolute";
+    book.style.inset = "0";
+    book.style.width = "100%";
+    book.style.height = "100%";
+
+    // Force layout before constructing the engine.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
     const rect = book.getBoundingClientRect();
-    const width = Math.max(180, Math.round(rect.width || this.els.viewport.clientWidth || 360));
-    const height = Math.max(260, Math.round(rect.height || this.els.viewport.clientHeight || 640));
+    const width = Math.max(240, Math.round(rect.width || window.innerWidth));
+    const height = Math.max(360, Math.round(rect.height || window.innerHeight));
 
     const urls = [];
     for (let i = 0; i < this.comic.pageCount; i++) {
@@ -268,32 +285,27 @@ const Reader = {
     }
     if (!urls.length) return null;
 
-    book.innerHTML = "";
-    book.style.display = "block";
-    book.style.width = "100%";
-    book.style.height = "100%";
-
     const flip = new St.PageFlip(book, {
       width,
       height,
       size: "stretch",
-      minWidth: 180,
-      maxWidth: Math.max(180, width),
-      minHeight: 260,
-      maxHeight: Math.max(260, height),
-      autoSize: true,
-      maxShadowOpacity: 0.55,
-      drawShadow: true,
-      flippingTime: 650,
-      usePortrait: true,
+      minWidth: 240,
+      maxWidth: width,
+      minHeight: 360,
+      maxHeight: height,
+      autoSize: false,
       showCover: false,
-      mobileScrollSupport: true,
-      swipeDistance: 30,
+      usePortrait: true,
+      drawShadow: true,
+      maxShadowOpacity: 0.65,
+      flippingTime: 720,
+      mobileScrollSupport: false,
+      swipeDistance: 20,
       clickEventForward: true,
       useMouseEvents: true
     });
 
-    flip.on("flip", (e) => {
+    flip.on("flip", e => {
       if (this.mode !== "single" || !this.comic) return;
       const i = Number(e.data);
       if (!Number.isInteger(i)) return;
@@ -305,47 +317,55 @@ const Reader = {
       this.loadPanelsForCurrentPage();
     });
 
+    flip.on("changeState", e => {
+      this.debugLog(`StPageFlip state=${e.data}`);
+    });
+
+    flip.on("init", () => {
+      this.debugLog(`StPageFlip initialized ${width}x${height}`);
+    });
+
+    // StPageFlip owns the actual Page-mode surface.
     flip.loadFromImages(urls);
-    flip.turnToPage(this.index);
+
+    // Wait until its internal pages/canvas are mounted before positioning.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    flip.turnToPage(Math.max(0, Math.min(this.index, urls.length - 1)));
 
     this.pageFlip = flip;
     this.pageFlipComicId = this.comic.id;
-    this.els.viewport.classList.add("pageflip-source");
     return flip;
   },
+
 
   async renderPaged() {
     this.els.stage.classList.remove("mode-scroll");
     this.els.viewport.style.width = "";
     this.els.viewport.style.height = "";
 
+    // Page mode is owned entirely by StPageFlip in this experiment.
     if (this.mode === "single") {
+      this.els.viewport.innerHTML = "";
+      this.els.viewport.classList.add("pageflip-host");
       this.els.loading.style.display = "flex";
+
       const flip = await this.ensurePageFlip();
-
       if (flip) {
-        this.els.viewport.innerHTML = "";
         this.els.loading.style.display = "none";
-        this.updateSliderLabel();
-        this.updateBookmarkFlag();
-
-        if (flip.getCurrentPageIndex() !== this.index) {
-          flip.turnToPage(this.index);
-        }
         return;
       }
 
+      // Safety fallback if the external engine is unavailable.
+      this.els.viewport.classList.remove("pageflip-host");
       await this.destroyPageFlip();
     } else {
+      this.els.viewport.classList.remove("pageflip-host");
       await this.destroyPageFlip();
     }
 
     this.els.loading.style.display = "flex";
-
-    const indices = this.mode === "spread"
-      ? [this.index, this.index + 1].filter(i => i < this.comic.pageCount)
-      : [this.index];
-
+    const indices = [this.index];
     const urls = await Promise.all(indices.map(i => this.getPageUrl(i)));
 
     this.els.viewport.innerHTML = "";
@@ -356,7 +376,6 @@ const Reader = {
       img.draggable = false;
       this.els.viewport.appendChild(img);
     });
-
     this.els.loading.style.display = "none";
   },
 
@@ -719,6 +738,7 @@ const Reader = {
     if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
     const wasSpread = this.mode === "spread";
+    if (mode !== "single") this.destroyPageFlip();
     this.mode = mode;
     this.comic.readMode = mode;
     LongboxDB.updateComic(this.comic.id, { readMode: mode });
