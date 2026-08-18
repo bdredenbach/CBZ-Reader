@@ -68,8 +68,8 @@ window.LongboxPageMode = (() => {
       if (!this.host || !this.book || !this.pageAspect) return;
 
       const rect = this.host.getBoundingClientRect();
-      const maxWidth = Math.max(240, Math.round(rect.width * 0.96));
-      const maxHeight = Math.max(360, Math.round(rect.height * 0.96));
+      const maxWidth = Math.max(240, Math.round(rect.width * 0.88));
+      const maxHeight = Math.max(360, Math.round(rect.height * 0.88));
 
       let width = Math.min(maxWidth, Math.round(maxHeight * this.pageAspect));
       let height = Math.round(width / this.pageAspect);
@@ -164,8 +164,8 @@ window.LongboxPageMode = (() => {
       const naturalHeight = Number(first.img.naturalHeight) || 1;
       this.pageAspect = naturalWidth / naturalHeight;
 
-      const maxWidth = Math.max(240, Math.round(hostWidth * 0.96));
-      const maxHeight = Math.max(360, Math.round(hostHeight * 0.96));
+      const maxWidth = Math.max(240, Math.round(hostWidth * 0.88));
+      const maxHeight = Math.max(360, Math.round(hostHeight * 0.88));
       let width = Math.min(maxWidth, Math.round(maxHeight * this.pageAspect));
       let height = Math.round(width / this.pageAspect);
       if (height > maxHeight) {
