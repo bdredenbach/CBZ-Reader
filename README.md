@@ -96,3 +96,7 @@ Page mode uses a book-like outgoing-page turn. Other reading layouts remain unch
 
 ## v58 — StPageFlip viewport-fit experiment
 Page mode only: StPageFlip is sized from the actual reader viewport and fills it. Spread, Scroll, Manga, and Webcomic remain on the existing renderer.
+
+
+## v59 — StPageFlip direct Page-mode experiment
+Page mode is exclusively owned by StPageFlip. The normal page renderer and page swipe handler are disabled while the engine is active. The engine is sized from the live reader viewport before initialization.
