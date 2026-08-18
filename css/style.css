@@ -1279,3 +1279,50 @@ button.reader-btn.mini-btn {
 #pageflip-book.pageflip-book .longbox-turn-book * {
   pointer-events: auto !important;
 }
+
+
+/* v64 — explicit interaction-layer architecture for Page Mode. */
+.reader-stage {
+  position: relative;
+}
+
+.reader-tap-zones {
+  z-index: 2 !important;
+  pointer-events: auto !important;
+}
+
+#pageflip-book.pageflip-book {
+  z-index: 10 !important;
+  pointer-events: none !important;
+  touch-action: pan-y !important;
+}
+
+#pageflip-book.pageflip-book .longbox-turn-book {
+  pointer-events: auto !important;
+  touch-action: pan-y !important;
+}
+
+.reader-chrome {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 1000 !important;
+  pointer-events: none !important;
+}
+
+.reader-chrome .reader-topbar,
+.reader-chrome .reader-bottombar {
+  position: absolute !important;
+  z-index: 1001 !important;
+  pointer-events: auto !important;
+}
+
+/* Keep individual controls explicitly interactive even if inherited styles
+   change elsewhere in the reader. */
+.reader-chrome button,
+.reader-chrome input,
+.reader-chrome select,
+.reader-chrome a,
+.reader-chrome [role="button"] {
+  pointer-events: auto !important;
+  touch-action: manipulation !important;
+}
