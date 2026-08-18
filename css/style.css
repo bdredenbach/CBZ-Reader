@@ -1261,3 +1261,12 @@ button.reader-btn.mini-btn {
   visibility: hidden !important;
   pointer-events: none !important;
 }
+
+/* v60: isolated Page mode host */
+.page-mode-isolated-host {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.page-mode-isolated-host + #pageflip-book {
+  visibility: visible;
+}
