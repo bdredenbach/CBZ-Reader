@@ -112,3 +112,7 @@ Page mode remains isolated in `js/page-mode.js`, but the renderer is now Turn.js
 
 ## v63 — Page-mode overlay/event isolation
 Fixes v62's layering issue: the isolated Turn.js page renderer now mounts in the dedicated `#pageflip-book` overlay rather than inside the hidden page viewport. The overlay captures page-mode gestures so double-tap/hold events cannot fall through to Longbox bubble/panel handlers underneath.
+
+
+## v64 — Page count handoff fix
+The reader now reconciles a comic's stored `pageCount` against the actual IndexedDB page records and passes the verified count explicitly into isolated Page mode. This prevents the experimental renderer from treating a multi-page issue as a one-page book when metadata is stale.
