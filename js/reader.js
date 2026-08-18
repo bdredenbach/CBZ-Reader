@@ -17,8 +17,6 @@ const Reader = {
   chromeVisible: true,
   chromeTimer: null,
   _pageTurnDirection: null,
-  pageFlip: null,
-  pageFlipComicId: null,
   pageModeEngine: null,
 
   currentPanels: [],       // detected panel rects for the visible page, fractional coords
@@ -38,6 +36,7 @@ const Reader = {
     this.els.view = document.getElementById("reader-view");
     this.els.stage = document.getElementById("reader-stage");
     this.els.viewport = document.getElementById("page-viewport");
+    this.els.pageFlipBook = document.getElementById("pageflip-book");
     this.els.chrome = document.getElementById("reader-chrome");
     this.els.title = document.getElementById("reader-title");
     this.els.seriesNav = document.getElementById("series-nav");
@@ -192,6 +191,7 @@ const Reader = {
 
     this.els.title.textContent = this.comic.title;
     this.els.slider.max = this.comic.pageCount - 1;
+    await this.updateSeriesNavigation();
     this.applyTheme();
     this.applyModeClass();
     this.updateModePills();
@@ -235,12 +235,13 @@ const Reader = {
     this.saveProgress();
   },
 
-
   async renderPaged() {
     this.els.stage.classList.remove("mode-scroll");
     this.els.viewport.style.width = "";
     this.els.viewport.style.height = "";
 
+    // Page mode gets its own isolated renderer. Everything else keeps the
+    // original v56 rendering path untouched.
     if (this.mode === "single") {
       if (!this.pageModeEngine) {
         this.pageModeEngine = new window.LongboxPageMode({
@@ -266,38 +267,78 @@ const Reader = {
       this.els.loading.style.display = "flex";
 
       const ok = await this.pageModeEngine.render(this.els.pageFlipBook);
-      if (ok) {
-        this.els.loading.style.display = "none";
-        return;
-      }
-
       this.els.loading.style.display = "none";
+      if (ok) return;
+
       this.els.viewport.classList.remove("page-mode-underlay");
-    } else {
-      if (this.pageModeEngine) await this.pageModeEngine.destroy();
+    } else if (this.pageModeEngine) {
+      await this.pageModeEngine.destroy();
       this.els.viewport.classList.remove("page-mode-underlay");
     }
 
-    // Existing renderer for Spread only.
+    // Original v56 spread renderer.
     this.els.loading.style.display = "flex";
-    const indices = [this.index, this.index + 1].filter(
-      i => i < this.comic.pageCount
-    );
-    const urls = await Promise.all(
-      indices.map(i => this.getPageUrl(i))
-    );
-
+    const indices = this.mode === "spread"
+      ? [this.index, this.index + 1].filter(i => i < this.comic.pageCount)
+      : [this.index];
+    const urls = await Promise.all(indices.map(i => this.getPageUrl(i)));
     this.els.viewport.innerHTML = "";
+    const renderedImages = [];
     urls.forEach(url => {
       if (!url) return;
       const img = document.createElement("img");
       img.src = url;
       img.draggable = false;
       this.els.viewport.appendChild(img);
+      renderedImages.push(img);
     });
     this.els.loading.style.display = "none";
+
+    if (this.mode === "spread" || (this.mode === "single" && this._pageTurnDirection)) {
+      await Promise.all(renderedImages.map(img =>
+        img.decode
+          ? img.decode().catch(() => {})
+          : (img.complete
+              ? Promise.resolve()
+              : new Promise(resolve => img.addEventListener("load", resolve, { once: true })))
+      ));
+    }
+
+    this.prefetch();
+    this.loadPanelsForCurrentPage();
+    this._pageTurnDirection = null;
   },
 
+  async stabilizeContinuousLayout() {
+    if (!(this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) return;
+
+    // On first entry Android can still be settling the reader viewport. Wait
+    // for a couple of frames before using its dimensions for page sizing.
+    await new Promise(resolve => {
+      let frames = 3;
+      const tick = () => {
+        if (--frames <= 0) resolve();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+
+    if (!(this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) return;
+
+    const stage = this.els.stage;
+    const viewport = this.els.viewport;
+    const width = stage.clientWidth;
+    const height = stage.clientHeight;
+
+    if (width > 0 && height > 0) {
+      viewport.style.height = `${height}px`;
+      if (this.mode === "webcomic") {
+        viewport.style.width = `${width}px`;
+      }
+    }
+
+    this.debugLog(`continuous layout settled: ${this.mode} ${width}x${height}`);
+  },
 
   async renderContinuous() {
     await this.stabilizeContinuousLayout();
@@ -655,9 +696,9 @@ const Reader = {
     if (mode === this.mode) return;
     this.debugLog(`setMode: ${this.mode} -> ${mode}`);
     if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
+    if (mode !== "single" && this.pageModeEngine) await this.pageModeEngine.destroy();
 
     const wasSpread = this.mode === "spread";
-    if (mode !== "single" && this.pageModeEngine) this.pageModeEngine.destroy();
     this.mode = mode;
     this.comic.readMode = mode;
     LongboxDB.updateComic(this.comic.id, { readMode: mode });

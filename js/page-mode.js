@@ -1,5 +1,7 @@
-/* Longbox Page Mode — isolated Turn.js experiment (v62)
- * Page mode only. The rest of Longbox remains coordinated by reader.js.
+/* Longbox Page Mode — isolated Turn.js experiment
+ * v57: initialize with exactly one page, then add remaining pages after the
+ * Turn.js instance is interactive. This isolates initialization from the
+ * multi-page/image-loading path that froze on mobile.
  */
 window.LongboxPageMode = (() => {
   class PageMode {
@@ -11,16 +13,15 @@ window.LongboxPageMode = (() => {
       this.onPageChanged = onPageChanged || (() => {});
       this.onState = onState || (() => {});
       this.host = null;
-      this._eventShield = (e) => {
-        e.stopPropagation();
-      };
       this.book = null;
       this.issueKey = null;
       this.pageCount = 0;
       this._boundResize = () => this.resize();
+      this._destroyed = false;
     }
 
     async destroy() {
+      this._destroyed = true;
       if (this.book) {
         try { this.book.turn("destroy"); } catch (_) {}
       }
@@ -31,13 +32,34 @@ window.LongboxPageMode = (() => {
       if (this.host) {
         this.host.innerHTML = "";
         this.host.style.display = "none";
-        for (const type of ["click","dblclick","pointerdown","pointerup","pointermove","touchstart","touchmove","touchend","mousedown","mouseup","mousemove"]) {
-          this.host.removeEventListener(type, this._eventShield, true);
-        }
       }
     }
 
+    async waitForImage(img) {
+      if (img.complete) return;
+      await new Promise(resolve => {
+        const done = () => resolve();
+        img.addEventListener("load", done, { once: true });
+        img.addEventListener("error", done, { once: true });
+        setTimeout(done, 10000);
+      });
+    }
+
+    makePage(url) {
+      const page = document.createElement("div");
+      page.className = "longbox-turn-page";
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "";
+      img.draggable = false;
+      img.decoding = "async";
+      img.loading = "eager";
+      page.appendChild(img);
+      return { page, img };
+    }
+
     async render(host) {
+      this._destroyed = false;
       this.host = host;
       const issue = this.getIssue();
       if (!issue || !window.jQuery || !jQuery.fn.turn) {
@@ -53,6 +75,7 @@ window.LongboxPageMode = (() => {
       }
 
       await this.destroy();
+      this._destroyed = false;
 
       host.style.display = "block";
       host.style.position = "absolute";
@@ -63,101 +86,93 @@ window.LongboxPageMode = (() => {
       host.style.zIndex = "50";
       host.style.pointerEvents = "auto";
 
-      // This is a true interaction boundary. Page-mode gestures must never
-      // bubble into Longbox's panel/bubble/focus handlers underneath.
-      for (const type of ["click","dblclick","pointerdown","pointerup","pointermove","touchstart","touchmove","touchend","mousedown","mouseup","mousemove"]) {
-        host.addEventListener(type, this._eventShield, true);
-      }
-
-      await new Promise(resolve =>
-        requestAnimationFrame(() =>
-          requestAnimationFrame(resolve)
-        )
-      );
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
       const rect = host.getBoundingClientRect();
       const width = Math.max(240, Math.round(rect.width || window.innerWidth));
       const height = Math.max(360, Math.round(rect.height || window.innerHeight));
+      const pageCount = Math.max(1, Number(issue.pageCount) || 1);
+
+      // Critical test: only the first page exists when Turn.js initializes.
+      const firstUrl = await this.getPageUrl(0);
+      if (!firstUrl) {
+        this.onState("first-page-missing");
+        return false;
+      }
 
       const book = document.createElement("div");
       book.className = "longbox-turn-book";
       book.style.width = width + "px";
       book.style.height = height + "px";
-
-      // v68: build the pages first, but wait until every image has either
-      // loaded or failed before Turn.js measures/initializes the book.
-      // Mobile browsers can stall when Turn.js measures a large set of
-      // still-loading images during initialization.
-      const pageNodes = [];
-      const imageLoads = [];
-
-      for (let i = 0; i < issue.pageCount; i++) {
-        const url = await this.getPageUrl(i);
-        if (!url) continue;
-
-        const page = document.createElement("div");
-        page.className = "longbox-turn-page";
-
-        const img = document.createElement("img");
-        img.src = url;
-        img.alt = "";
-        img.draggable = false;
-        img.decoding = "async";
-        img.loading = "eager";
-
-        page.appendChild(img);
-        pageNodes.push(page);
-        imageLoads.push(new Promise(resolve => {
-          if (img.complete) { resolve(); return; }
-          img.addEventListener("load", resolve, { once: true });
-          img.addEventListener("error", resolve, { once: true });
-        }));
-      }
-
+      const first = this.makePage(firstUrl);
+      book.appendChild(first.page);
       host.innerHTML = "";
       host.appendChild(book);
-      pageNodes.forEach(page => book.appendChild(page));
 
-      await Promise.all(imageLoads);
+      await this.waitForImage(first.img);
+      if (this._destroyed) return false;
 
       const $book = jQuery(book);
-      this.pageCount = book.children.length;
+      this.pageCount = 1;
+      this.onState("initializing=1");
 
-      this.onState(`initializing=${this.pageCount}`);
+      try {
+        $book.turn({
+          width,
+          height,
+          display: "single",
+          autoCenter: true,
+          gradients: false,
+          acceleration: false,
+          elevation: 0,
+          duration: 600,
+          direction: "ltr",
+          pages: 1,
+          page: 1
+        });
+      } catch (err) {
+        this.onState("init-error=" + (err?.message || err));
+        return false;
+      }
 
-      // v68 intentionally uses conservative Turn.js settings. We first need
-      // a stable, interactive book on mobile before re-enabling visual extras
-      // such as gradients, acceleration, and elevation.
-      $book.turn({
-        width,
-        height,
-        display: "single",
-        autoCenter: true,
-        gradients: false,
-        acceleration: false,
-        elevation: 0,
-        duration: 600,
-        direction: "ltr",
-        pages: this.pageCount,
-        page: Math.max(1, Math.min(this.getIndex() + 1, this.pageCount))
-      });
-
-      this.onState(`ready=${this.pageCount}`);
+      this.book = $book;
+      this.issueKey = issueKey;
+      this.onState("ready=1");
 
       $book.bind("turned", (_event, page) => {
         const index = Math.max(0, Number(page) - 1);
         this.setIndex(index);
         this.onPageChanged(index);
       });
+      $book.bind("turning", (_event, page) => this.onState(`turning=${page}`));
 
-      $book.bind("turning", (_event, page) => {
-        this.onState(`turning=${page}`);
-      });
-
-      this.book = $book;
-      this.issueKey = issueKey;
       window.addEventListener("resize", this._boundResize, { passive: true });
 
+      // Now that Turn.js is alive, add pages one at a time. If a particular
+      // page cannot be loaded, skip it rather than blocking the whole reader.
+      this.onState(`adding=${pageCount - 1}`);
+      for (let i = 1; i < pageCount; i++) {
+        if (this._destroyed || !this.book) return false;
+        const url = await this.getPageUrl(i);
+        if (!url) continue;
+        const { page, img } = this.makePage(url);
+        await this.waitForImage(img);
+        if (this._destroyed || !this.book) return false;
+        try {
+          this.book.turn("addPage", page, i + 1);
+          this.pageCount = i + 1;
+          this.onState(`added=${this.pageCount}`);
+        } catch (err) {
+          this.onState(`add-error=${i + 1}:${err?.message || err}`);
+          break;
+        }
+      }
+
+      if (!this._destroyed && this.book) {
+        const target = Math.max(1, Math.min(Number(this.getIndex()) + 1, this.pageCount));
+        try { this.book.turn("page", target); } catch (_) {}
+        this.onState(`ready=${this.pageCount}`);
+      }
       return true;
     }
 
@@ -166,26 +181,16 @@ window.LongboxPageMode = (() => {
       const rect = this.host.getBoundingClientRect();
       const width = Math.max(240, Math.round(rect.width || window.innerWidth));
       const height = Math.max(360, Math.round(rect.height || window.innerHeight));
-      try {
-        this.book.turn("size", width, height);
-      } catch (_) {}
+      try { this.book.turn("size", width, height); } catch (_) {}
     }
 
-    next() {
-      if (this.book) this.book.turn("next");
-    }
-
-    prev() {
-      if (this.book) this.book.turn("previous");
-    }
-
+    next() { if (this.book) this.book.turn("next"); }
+    prev() { if (this.book) this.book.turn("previous"); }
     goTo(index) {
-      if (this.book) {
-        const page = Math.max(1, Math.min(index + 1, this.pageCount));
-        this.book.turn("page", page);
-      }
+      if (!this.book) return;
+      const page = Math.max(1, Math.min(index + 1, this.pageCount));
+      this.book.turn("page", page);
     }
   }
-
   return PageMode;
 })();

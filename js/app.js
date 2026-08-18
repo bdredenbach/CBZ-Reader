@@ -6,8 +6,6 @@ const LongboxApp = {
   init() {
     Library.init();
     Reader.init();
-    // Wire the dedicated Page Mode surface before any comic is opened.
-    Reader.els.pageFlipBook = document.getElementById("pageflip-book");
     this.updateInstallButton();
 
     if ("serviceWorker" in navigator) {
