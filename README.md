@@ -100,3 +100,7 @@ Page mode only: StPageFlip is sized from the actual reader viewport and fills it
 
 ## v59 — StPageFlip direct Page-mode experiment
 Page mode is exclusively owned by StPageFlip. The normal page renderer and page swipe handler are disabled while the engine is active. The engine is sized from the live reader viewport before initialization.
+
+
+## v60 — Isolated Page Mode
+Page mode is delegated to `js/page-mode.js`, while `reader.js` remains the shared reader coordinator. Spread/Scroll/Manga/Webcomic continue using their existing rendering paths. This is an experimental architecture for the physical page-turn engine.
