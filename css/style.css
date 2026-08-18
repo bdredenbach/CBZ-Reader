@@ -1202,3 +1202,20 @@ button.reader-btn.mini-btn {
     display: none;
   }
 }
+
+/* v57: StPageFlip experimental Page-mode renderer */
+.pageflip-book {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: none;
+  overflow: hidden;
+  background: transparent;
+}
+.pageflip-book .stf__parent {
+  width: 100% !important;
+  height: 100% !important;
+}
+.pageflip-book canvas { display: block; }
+.page-viewport.pageflip-source { position: relative; z-index: 1; }
+.page-viewport.pageflip-source > img { visibility: hidden; }
