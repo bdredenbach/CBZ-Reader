@@ -1230,3 +1230,34 @@ button.reader-btn.mini-btn {
 .page-viewport.pageflip-source {
   visibility: hidden;
 }
+
+/* v59: StPageFlip owns Page mode completely */
+.pageflip-book {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 5 !important;
+  display: none;
+  overflow: hidden;
+  background: transparent;
+}
+.pageflip-book .stf__parent {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+.pageflip-book .stf__block {
+  width: 100% !important;
+  height: 100% !important;
+}
+.pageflip-book canvas {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+.page-viewport.pageflip-host {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
