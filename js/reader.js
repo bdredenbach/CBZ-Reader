@@ -237,6 +237,15 @@ const Reader = {
     this.els.stage.classList.remove("mode-scroll");
     this.els.viewport.style.width = "";
     this.els.viewport.style.height = "";
+
+    const oldPage = this.mode === "single"
+      ? this.els.viewport.querySelector("img")
+      : null;
+    const oldPageSrc = oldPage ? oldPage.src : null;
+
+    const oldTurn = this.els.viewport.querySelector(".page-turn-overlay");
+    if (oldTurn) oldTurn.remove();
+
     this.els.viewport.innerHTML = "";
     this.els.loading.style.display = "flex";
 
@@ -253,16 +262,11 @@ const Reader = {
       const img = document.createElement("img");
       img.src = url;
       img.draggable = false;
-      if (this.mode === "single" && this._pageTurnDirection) {
-        img.classList.add(
-          this._pageTurnDirection === "next" ? "page-flip-next" : "page-flip-prev"
-        );
-      }
       this.els.viewport.appendChild(img);
       renderedImages.push(img);
     });
 
-    if (this.mode === "spread") {
+    if (this.mode === "spread" || (this.mode === "single" && this._pageTurnDirection)) {
       await Promise.all(renderedImages.map(img =>
         img.decode
           ? img.decode().catch(() => {})
@@ -271,6 +275,46 @@ const Reader = {
               : new Promise(resolve => img.addEventListener("load", resolve, { once: true })))
       ));
     }
+
+    if (this.mode === "single" && this._pageTurnDirection && oldPageSrc) {
+      const incoming = renderedImages[0];
+      if (incoming) {
+        const overlay = document.createElement("div");
+        overlay.className = "page-turn-overlay";
+        overlay.setAttribute("aria-hidden", "true");
+
+        const sheet = document.createElement("img");
+        sheet.className = "page-turn-sheet";
+        sheet.src = oldPageSrc;
+        sheet.draggable = false;
+
+        overlay.appendChild(sheet);
+        this.els.viewport.appendChild(overlay);
+
+        const left = incoming.offsetLeft;
+        const top = incoming.offsetTop;
+        const width = incoming.offsetWidth;
+        const height = incoming.offsetHeight;
+
+        overlay.style.left = `${left}px`;
+        overlay.style.top = `${top}px`;
+        overlay.style.width = `${width}px`;
+        overlay.style.height = `${height}px`;
+
+        const directionClass =
+          this._pageTurnDirection === "next"
+            ? "page-turn-next"
+            : "page-turn-prev";
+        overlay.classList.add(directionClass);
+
+        const remove = () => {
+          overlay.remove();
+        };
+        overlay.addEventListener("animationend", remove, { once: true });
+        setTimeout(remove, 800);
+      }
+    }
+
     this.prefetch();
     this.loadPanelsForCurrentPage();
     this._pageTurnDirection = null;
