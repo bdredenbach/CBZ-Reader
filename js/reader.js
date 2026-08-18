@@ -19,6 +19,7 @@ const Reader = {
   _pageTurnDirection: null,
   pageFlip: null,
   pageFlipComicId: null,
+  pageModeEngine: null,
 
   currentPanels: [],       // detected panel rects for the visible page, fractional coords
   panelZoomEnabled: localStorage.getItem(PANEL_ZOOM_KEY) !== "0",
@@ -235,138 +236,56 @@ const Reader = {
     this.saveProgress();
   },
 
-  async destroyPageFlip() {
-    if (this.pageFlip) {
-      try { this.pageFlip.destroy();
-      } catch (_) {}
-    }
-    this.pageFlip = null;
-    this.pageFlipComicId = null;
-    if (this.els.pageFlipBook) {
-      this.els.pageFlipBook.innerHTML = "";
-      this.els.pageFlipBook.style.display = "none";
-    }
-  },
-
-  async ensurePageFlip() {
-    if (this.mode !== "single" || !this.comic || !window.St?.PageFlip) return null;
-    if (this.pageFlip && this.pageFlipComicId === this.comic.id) {
-      const book = this.els.pageFlipBook;
-      if (book) {
-        const rect = book.getBoundingClientRect();
-        if (rect.width > 20 && rect.height > 20) {
-          return this.pageFlip;
-        }
-      }
-    }
-
-    await this.destroyPageFlip();
-
-    const book = this.els.pageFlipBook;
-    if (!book) return null;
-
-    book.style.display = "block";
-    book.style.position = "absolute";
-    book.style.inset = "0";
-    book.style.width = "100%";
-    book.style.height = "100%";
-
-    // Force layout before constructing the engine.
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
-    const rect = book.getBoundingClientRect();
-    const width = Math.max(240, Math.round(rect.width || window.innerWidth));
-    const height = Math.max(360, Math.round(rect.height || window.innerHeight));
-
-    const urls = [];
-    for (let i = 0; i < this.comic.pageCount; i++) {
-      const url = await this.getPageUrl(i);
-      if (url) urls.push(url);
-    }
-    if (!urls.length) return null;
-
-    const flip = new St.PageFlip(book, {
-      width,
-      height,
-      size: "stretch",
-      minWidth: 240,
-      maxWidth: width,
-      minHeight: 360,
-      maxHeight: height,
-      autoSize: false,
-      showCover: false,
-      usePortrait: true,
-      drawShadow: true,
-      maxShadowOpacity: 0.65,
-      flippingTime: 720,
-      mobileScrollSupport: false,
-      swipeDistance: 20,
-      clickEventForward: true,
-      useMouseEvents: true
-    });
-
-    flip.on("flip", e => {
-      if (this.mode !== "single" || !this.comic) return;
-      const i = Number(e.data);
-      if (!Number.isInteger(i)) return;
-      this.index = Math.max(0, Math.min(this.comic.pageCount - 1, i));
-      this.updateSliderLabel();
-      this.updateBookmarkFlag();
-      this.saveProgress();
-      this.showChrome();
-      this.loadPanelsForCurrentPage();
-    });
-
-    flip.on("changeState", e => {
-      this.debugLog(`StPageFlip state=${e.data}`);
-    });
-
-    flip.on("init", () => {
-      this.debugLog(`StPageFlip initialized ${width}x${height}`);
-    });
-
-    // StPageFlip owns the actual Page-mode surface.
-    flip.loadFromImages(urls);
-
-    // Wait until its internal pages/canvas are mounted before positioning.
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
-    flip.turnToPage(Math.max(0, Math.min(this.index, urls.length - 1)));
-
-    this.pageFlip = flip;
-    this.pageFlipComicId = this.comic.id;
-    return flip;
-  },
-
 
   async renderPaged() {
     this.els.stage.classList.remove("mode-scroll");
     this.els.viewport.style.width = "";
     this.els.viewport.style.height = "";
 
-    // Page mode is owned entirely by StPageFlip in this experiment.
     if (this.mode === "single") {
+      if (!this.pageModeEngine) {
+        this.pageModeEngine = new window.LongboxPageMode({
+          getIssue: () => this.comic,
+          getPageUrl: (i) => this.getPageUrl(i),
+          getIndex: () => this.index,
+          setIndex: (i) => { this.index = i; },
+          onPageChanged: (i) => {
+            this.index = i;
+            this.updateSliderLabel();
+            this.updateBookmarkFlag();
+            this.saveProgress();
+            this.showChrome();
+            this.loadPanelsForCurrentPage();
+          },
+          onState: (state) => this.debugLog(`PageMode state=${state}`)
+        });
+      }
+
       this.els.viewport.innerHTML = "";
-      this.els.viewport.classList.add("pageflip-host");
+      this.els.viewport.classList.add("page-mode-isolated-host");
       this.els.loading.style.display = "flex";
 
-      const flip = await this.ensurePageFlip();
-      if (flip) {
+      const ok = await this.pageModeEngine.render(this.els.viewport);
+      if (ok) {
         this.els.loading.style.display = "none";
         return;
       }
 
-      // Safety fallback if the external engine is unavailable.
-      this.els.viewport.classList.remove("pageflip-host");
-      await this.destroyPageFlip();
+      this.els.loading.style.display = "none";
+      this.els.viewport.classList.remove("page-mode-isolated-host");
     } else {
-      this.els.viewport.classList.remove("pageflip-host");
-      await this.destroyPageFlip();
+      if (this.pageModeEngine) await this.pageModeEngine.destroy();
+      this.els.viewport.classList.remove("page-mode-isolated-host");
     }
 
+    // Existing renderer for Spread only.
     this.els.loading.style.display = "flex";
-    const indices = [this.index];
-    const urls = await Promise.all(indices.map(i => this.getPageUrl(i)));
+    const indices = [this.index, this.index + 1].filter(
+      i => i < this.comic.pageCount
+    );
+    const urls = await Promise.all(
+      indices.map(i => this.getPageUrl(i))
+    );
 
     this.els.viewport.innerHTML = "";
     urls.forEach(url => {
@@ -738,7 +657,7 @@ const Reader = {
     if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
     const wasSpread = this.mode === "spread";
-    if (mode !== "single") this.destroyPageFlip();
+    if (mode !== "single" && this.pageModeEngine) this.pageModeEngine.destroy();
     this.mode = mode;
     this.comic.readMode = mode;
     LongboxDB.updateComic(this.comic.id, { readMode: mode });
@@ -872,8 +791,8 @@ const Reader = {
 
   next() {
     this.showChrome();
-    if (this.mode === "single" && this.pageFlip) {
-      this.pageFlip.flipNext("top");
+    if (this.mode === "single" && this.pageModeEngine) {
+      this.pageModeEngine.next();
       return;
     }
     const step = this.mode === "spread" ? 2 : 1;
@@ -881,8 +800,8 @@ const Reader = {
   },
   prev() {
     this.showChrome();
-    if (this.mode === "single" && this.pageFlip) {
-      this.pageFlip.flipPrev("top");
+    if (this.mode === "single" && this.pageModeEngine) {
+      this.pageModeEngine.prev();
       return;
     }
     const step = this.mode === "spread" ? 2 : 1;
@@ -1344,7 +1263,7 @@ const Reader = {
           if (panStart) {
             const dx = endTouch.clientX - panStart.x;
             const dy = endTouch.clientY - panStart.y;
-            if (!this.focusMode && !this.pageFlip && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+            if (!this.focusMode && !this.pageModeEngine && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
               this.debugLog(`-> swipe page-turn dx=${dx.toFixed(0)}`);
               if (dx < 0) this.next(); else this.prev();
               panStart = null;
@@ -1425,7 +1344,7 @@ const Reader = {
         this.handleSingleTap({ x: e.clientX, y: e.clientY });
       } else if (mouseDown && mouseMoved && this.scale <= 1.02) {
         const dx = e.clientX - mStart.x, dy = e.clientY - mStart.y;
-        if (!this.pageFlip && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+        if (!this.pageModeEngine && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
           if (dx < 0) this.next(); else this.prev();
         }
       }
