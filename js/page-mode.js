@@ -98,7 +98,14 @@ window.LongboxPageMode = (() => {
       } catch (_) {}
     }
 
+    setPageModeActive(active) {
+      const stage = this.host || document.querySelector(".reader-stage");
+      if (stage) stage.classList.toggle("page-mode-active", !!active);
+      document.body.classList.toggle("page-mode-active", !!active);
+    }
+
     async render(host) {
+      this.setPageModeActive(true);
       this._destroyed = false;
       this.host = host;
       const issue = this.getIssue();
