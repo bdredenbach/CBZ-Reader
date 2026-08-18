@@ -104,3 +104,7 @@ Page mode is exclusively owned by StPageFlip. The normal page renderer and page 
 
 ## v60 — Isolated Page Mode
 Page mode is delegated to `js/page-mode.js`, while `reader.js` remains the shared reader coordinator. Spread/Scroll/Manga/Webcomic continue using their existing rendering paths. This is an experimental architecture for the physical page-turn engine.
+
+
+## v61 — Soft HTML page renderer
+The isolated Page mode now uses StPageFlip's HTML renderer with `data-density="soft"` instead of `loadFromImages`. This is intentional: the library's soft-page fold is implemented by its HTML page renderer, while image loading uses its canvas renderer. Other modes remain unchanged.
