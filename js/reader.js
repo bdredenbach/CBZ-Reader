@@ -262,20 +262,21 @@ const Reader = {
       }
 
       this.els.viewport.innerHTML = "";
-      this.els.viewport.classList.add("page-mode-isolated-host");
+      this.els.viewport.classList.add("page-mode-underlay");
+      this.els.pageFlipBook.innerHTML = "";
       this.els.loading.style.display = "flex";
 
-      const ok = await this.pageModeEngine.render(this.els.viewport);
+      const ok = await this.pageModeEngine.render(this.els.pageFlipBook);
       if (ok) {
         this.els.loading.style.display = "none";
         return;
       }
 
       this.els.loading.style.display = "none";
-      this.els.viewport.classList.remove("page-mode-isolated-host");
+      this.els.viewport.classList.remove("page-mode-underlay");
     } else {
       if (this.pageModeEngine) await this.pageModeEngine.destroy();
-      this.els.viewport.classList.remove("page-mode-isolated-host");
+      this.els.viewport.classList.remove("page-mode-underlay");
     }
 
     // Existing renderer for Spread only.

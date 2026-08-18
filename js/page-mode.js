@@ -11,6 +11,9 @@ window.LongboxPageMode = (() => {
       this.onPageChanged = onPageChanged || (() => {});
       this.onState = onState || (() => {});
       this.host = null;
+      this._eventShield = (e) => {
+        e.stopPropagation();
+      };
       this.book = null;
       this.issueKey = null;
       this.pageCount = 0;
@@ -28,6 +31,9 @@ window.LongboxPageMode = (() => {
       if (this.host) {
         this.host.innerHTML = "";
         this.host.style.display = "none";
+        for (const type of ["click","dblclick","pointerdown","pointerup","pointermove","touchstart","touchmove","touchend","mousedown","mouseup","mousemove"]) {
+          this.host.removeEventListener(type, this._eventShield, true);
+        }
       }
     }
 
@@ -54,6 +60,14 @@ window.LongboxPageMode = (() => {
       host.style.width = "100%";
       host.style.height = "100%";
       host.style.overflow = "hidden";
+      host.style.zIndex = "50";
+      host.style.pointerEvents = "auto";
+
+      // This is a true interaction boundary. Page-mode gestures must never
+      // bubble into Longbox's panel/bubble/focus handlers underneath.
+      for (const type of ["click","dblclick","pointerdown","pointerup","pointermove","touchstart","touchmove","touchend","mousedown","mouseup","mousemove"]) {
+        host.addEventListener(type, this._eventShield, true);
+      }
 
       await new Promise(resolve =>
         requestAnimationFrame(() =>
