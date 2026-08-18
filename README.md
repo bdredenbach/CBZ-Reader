@@ -106,5 +106,5 @@ Page mode is exclusively owned by StPageFlip. The normal page renderer and page 
 Page mode is delegated to `js/page-mode.js`, while `reader.js` remains the shared reader coordinator. Spread/Scroll/Manga/Webcomic continue using their existing rendering paths. This is an experimental architecture for the physical page-turn engine.
 
 
-## v61 — Soft HTML page renderer
-The isolated Page mode now uses StPageFlip's HTML renderer with `data-density="soft"` instead of `loadFromImages`. This is intentional: the library's soft-page fold is implemented by its HTML page renderer, while image loading uses its canvas renderer. Other modes remain unchanged.
+## v62 — Turn.js Page Mode experiment
+Page mode remains isolated in `js/page-mode.js`, but the renderer is now Turn.js instead of StPageFlip. Turn.js is a separate HTML5/jQuery page-flip engine with gradients and acceleration. This test loads the engine from CDN; if the curl is successful, the dependency should be vendored locally before shipping so the PWA remains offline-capable.
