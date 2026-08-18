@@ -1203,19 +1203,30 @@ button.reader-btn.mini-btn {
   }
 }
 
-/* v57: StPageFlip experimental Page-mode renderer */
-.pageflip-book {
+/* v58: StPageFlip experiment — fill the reader viewport */
+#pageflip-book {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
   display: none;
   overflow: hidden;
   background: transparent;
 }
-.pageflip-book .stf__parent {
+#pageflip-book .stf__parent {
   width: 100% !important;
   height: 100% !important;
 }
-.pageflip-book canvas { display: block; }
-.page-viewport.pageflip-source { position: relative; z-index: 1; }
-.page-viewport.pageflip-source > img { visibility: hidden; }
+#pageflip-book .stf__block {
+  max-width: none !important;
+  max-height: none !important;
+}
+#pageflip-book canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+.page-viewport.pageflip-source {
+  visibility: hidden;
+}
