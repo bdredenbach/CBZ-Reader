@@ -102,29 +102,6 @@ const LongboxDB = {
     return result ? result.blob : null;
   },
 
-  async getPageInventory(comicId) {
-    const t = await tx(["pages"], "readonly");
-    const store = t.objectStore("pages");
-    const result = [];
-    try {
-      const idx = store.index("comicId");
-      const rows = await reqResult(idx.getAll(IDBKeyRange.only(comicId)));
-      for (const row of (rows || [])) result.push(Number(row.index));
-    } catch (_) {
-      const rows = await reqResult(store.getAll());
-      for (const row of (rows || [])) {
-        if (row && row.comicId === comicId) result.push(Number(row.index));
-      }
-    }
-    result.sort((a, b) => a - b);
-    return result.filter((v, i, a) => Number.isFinite(v) && (i === 0 || v !== a[i - 1]));
-  },
-
-  async getPageCount(comicId) {
-    const indexes = await this.getPageInventory(comicId);
-    return indexes.length ? Math.max(...indexes) + 1 : 0;
-  },
-
   // ---------------- Panel-detection cache ----------------
   // `panels` is null/undefined = "not yet computed"; an array (possibly
   // empty) = "computed, here's what we found" — so we never redo the work.

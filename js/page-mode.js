@@ -5,7 +5,6 @@ window.LongboxPageMode = (() => {
   class PageMode {
     constructor({ getIssue, getPageUrl, getIndex, setIndex, onPageChanged, onState }) {
       this.getIssue = getIssue;
-      this.getPageCount = getPageCount;
       this.getPageUrl = getPageUrl;
       this.getIndex = getIndex;
       this.setIndex = setIndex;
@@ -41,7 +40,6 @@ window.LongboxPageMode = (() => {
     async render(host) {
       this.host = host;
       const issue = this.getIssue();
-      const pageCount = Number(this.getPageCount?.() ?? issue?.pageCount ?? 0);
       if (!issue || !window.jQuery || !jQuery.fn.turn) {
         this.onState("Turn.js unavailable");
         return false;
@@ -86,7 +84,7 @@ window.LongboxPageMode = (() => {
       book.style.width = width + "px";
       book.style.height = height + "px";
 
-      for (let i = 0; i < pageCount; i++) {
+      for (let i = 0; i < issue.pageCount; i++) {
         const url = await this.getPageUrl(i);
         if (!url) continue;
 
@@ -108,12 +106,6 @@ window.LongboxPageMode = (() => {
 
       const $book = jQuery(book);
       this.pageCount = book.children.length;
-
-      if (this.pageCount !== pageCount) {
-        this.onState(`PageMode loaded ${this.pageCount}/${pageCount} pages`);
-      } else {
-        this.onState(`PageMode loaded ${this.pageCount} pages`);
-      }
 
       $book.turn({
         width,
