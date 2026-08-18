@@ -1,6 +1,5 @@
-/* Longbox Page Mode — isolated physical-page renderer
- * v60 experimental module
- * StPageFlip is intentionally isolated here so the other reading modes remain untouched.
+/* Longbox Page Mode — isolated Turn.js experiment (v62)
+ * Page mode only. The rest of Longbox remains coordinated by reader.js.
  */
 window.LongboxPageMode = (() => {
   class PageMode {
@@ -12,18 +11,20 @@ window.LongboxPageMode = (() => {
       this.onPageChanged = onPageChanged || (() => {});
       this.onState = onState || (() => {});
       this.host = null;
-      this.flip = null;
+      this.book = null;
       this.issueKey = null;
-      this.pages = [];
+      this.pageCount = 0;
+      this._boundResize = () => this.resize();
     }
 
     async destroy() {
-      if (this.flip) {
-        try { this.flip.destroy(); } catch (_) {}
+      if (this.book) {
+        try { this.book.turn("destroy"); } catch (_) {}
       }
-      this.flip = null;
+      this.book = null;
       this.issueKey = null;
-      this.pages = [];
+      this.pageCount = 0;
+      window.removeEventListener("resize", this._boundResize);
       if (this.host) {
         this.host.innerHTML = "";
         this.host.style.display = "none";
@@ -33,11 +34,15 @@ window.LongboxPageMode = (() => {
     async render(host) {
       this.host = host;
       const issue = this.getIssue();
-      if (!issue || !window.St?.PageFlip) return false;
+      if (!issue || !window.jQuery || !jQuery.fn.turn) {
+        this.onState("Turn.js unavailable");
+        return false;
+      }
 
       const issueKey = issue.id ?? issue.key ?? issue.title ?? "issue";
-      if (this.flip && this.issueKey === issueKey) {
+      if (this.book && this.issueKey === issueKey) {
         this.host.style.display = "block";
+        this.resize();
         return true;
       }
 
@@ -48,6 +53,7 @@ window.LongboxPageMode = (() => {
       host.style.inset = "0";
       host.style.width = "100%";
       host.style.height = "100%";
+      host.style.overflow = "hidden";
 
       await new Promise(resolve =>
         requestAnimationFrame(() =>
@@ -59,14 +65,17 @@ window.LongboxPageMode = (() => {
       const width = Math.max(240, Math.round(rect.width || window.innerWidth));
       const height = Math.max(360, Math.round(rect.height || window.innerHeight));
 
-      const pages = [];
+      const book = document.createElement("div");
+      book.className = "longbox-turn-book";
+      book.style.width = width + "px";
+      book.style.height = height + "px";
+
       for (let i = 0; i < issue.pageCount; i++) {
         const url = await this.getPageUrl(i);
         if (!url) continue;
 
         const page = document.createElement("div");
-        page.className = "longbox-flip-page";
-        page.dataset.density = "soft";
+        page.className = "longbox-turn-page";
 
         const img = document.createElement("img");
         img.src = url;
@@ -75,85 +84,67 @@ window.LongboxPageMode = (() => {
         img.decoding = "async";
 
         page.appendChild(img);
-        pages.push(page);
+        book.appendChild(page);
       }
 
-      if (!pages.length) return false;
-      this.pages = pages;
+      host.innerHTML = "";
+      host.appendChild(book);
 
-      const flip = new St.PageFlip(host, {
+      const $book = jQuery(book);
+      this.pageCount = book.children.length;
+
+      $book.turn({
         width,
         height,
-        size: "stretch",
-        minWidth: 240,
-        maxWidth: width,
-        minHeight: 360,
-        maxHeight: height,
-        autoSize: false,
-        showCover: false,
-        usePortrait: true,
-        drawShadow: true,
-        maxShadowOpacity: 0.65,
-        flippingTime: 900,
-        mobileScrollSupport: false,
-        swipeDistance: 20,
-        clickEventForward: true,
-        useMouseEvents: true
+        display: "single",
+        autoCenter: true,
+        gradients: true,
+        acceleration: true,
+        elevation: 70,
+        duration: 850,
+        direction: "ltr",
+        page: Math.max(1, Math.min(this.getIndex() + 1, this.pageCount))
       });
 
-      flip.on("flip", e => {
-        const index = Number(e.data);
-        if (!Number.isInteger(index)) return;
+      $book.bind("turned", (_event, page) => {
+        const index = Math.max(0, Number(page) - 1);
         this.setIndex(index);
         this.onPageChanged(index);
       });
 
-      flip.on("changeState", e => {
-        this.onState(e.data);
+      $book.bind("turning", (_event, page) => {
+        this.onState(`turning=${page}`);
       });
 
-      flip.on("changeOrientation", e => {
-        this.onState(`orientation=${e.data}`);
-      });
-
-      flip.on("init", e => {
-        this.onState(`init=${e.data?.mode || "unknown"}`);
-      });
-
-      // IMPORTANT: HTML pages with data-density="soft" use StPageFlip's
-      // polygon-based soft-page renderer. loadFromImages uses the canvas
-      // renderer and does not expose the soft/hard HTML page density.
-      flip.loadFromHtml(pages);
-
-      await new Promise(resolve =>
-        requestAnimationFrame(() =>
-          requestAnimationFrame(resolve)
-        )
-      );
-
-      const index = Math.max(
-        0,
-        Math.min(this.getIndex(), pages.length - 1)
-      );
-      flip.turnToPage(index);
-
-      this.flip = flip;
+      this.book = $book;
       this.issueKey = issueKey;
+      window.addEventListener("resize", this._boundResize, { passive: true });
+
       return true;
     }
 
+    resize() {
+      if (!this.book || !this.host) return;
+      const rect = this.host.getBoundingClientRect();
+      const width = Math.max(240, Math.round(rect.width || window.innerWidth));
+      const height = Math.max(360, Math.round(rect.height || window.innerHeight));
+      try {
+        this.book.turn("size", width, height);
+      } catch (_) {}
+    }
+
     next() {
-      if (this.flip) this.flip.flipNext("bottom");
+      if (this.book) this.book.turn("next");
     }
 
     prev() {
-      if (this.flip) this.flip.flipPrev("bottom");
+      if (this.book) this.book.turn("previous");
     }
 
     goTo(index) {
-      if (this.flip) {
-        const i = Math.max(0, Math.min(index, this.pages.length - 1));
-        this.flip.turnToPage(i);
+      if (this.book) {
+        const page = Math.max(1, Math.min(index + 1, this.pageCount));
+        this.book.turn("page", page);
       }
     }
   }
