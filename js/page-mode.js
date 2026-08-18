@@ -16,6 +16,9 @@ window.LongboxPageMode = (() => {
       this.book = null;
       this.issueKey = null;
       this.pageCount = 0;
+      this.pageAspect = null;
+      this.pageWidth = 0;
+      this.pageHeight = 0;
       this._boundResize = () => this.resize();
       this._destroyed = false;
     }
@@ -28,6 +31,9 @@ window.LongboxPageMode = (() => {
       this.book = null;
       this.issueKey = null;
       this.pageCount = 0;
+      this.pageAspect = null;
+      this.pageWidth = 0;
+      this.pageHeight = 0;
       window.removeEventListener("resize", this._boundResize);
       if (this.host) {
         this.host.innerHTML = "";
@@ -56,6 +62,40 @@ window.LongboxPageMode = (() => {
       img.loading = "eager";
       page.appendChild(img);
       return { page, img };
+    }
+
+    fitBookToHost() {
+      if (!this.host || !this.book || !this.pageAspect) return;
+
+      const rect = this.host.getBoundingClientRect();
+      const maxWidth = Math.max(240, Math.round(rect.width * 0.96));
+      const maxHeight = Math.max(360, Math.round(rect.height * 0.96));
+
+      let width = Math.min(maxWidth, Math.round(maxHeight * this.pageAspect));
+      let height = Math.round(width / this.pageAspect);
+
+      if (height > maxHeight) {
+        height = maxHeight;
+        width = Math.round(height * this.pageAspect);
+      }
+
+      width = Math.max(240, width);
+      height = Math.max(360, height);
+
+      this.pageWidth = width;
+      this.pageHeight = height;
+
+      // Center the actual portrait page inside the usable reader area.
+      this.book.css({
+        width: width + "px",
+        height: height + "px",
+        left: Math.round((rect.width - width) / 2) + "px",
+        top: Math.round((rect.height - height) / 2) + "px"
+      });
+
+      try {
+        this.book.turn("size", width, height);
+      } catch (_) {}
     }
 
     async render(host) {
@@ -97,8 +137,8 @@ window.LongboxPageMode = (() => {
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
       const rect = host.getBoundingClientRect();
-      const width = Math.max(240, Math.round(rect.width || window.innerWidth));
-      const height = Math.max(360, Math.round(rect.height || window.innerHeight));
+      const hostWidth = Math.max(240, Math.round(rect.width || window.innerWidth));
+      const hostHeight = Math.max(360, Math.round(rect.height || window.innerHeight));
       const pageCount = Math.max(1, Number(issue.pageCount) || 1);
 
       // Critical test: only the first page exists when Turn.js initializes.
@@ -110,8 +150,6 @@ window.LongboxPageMode = (() => {
 
       const book = document.createElement("div");
       book.className = "longbox-turn-book";
-      book.style.width = width + "px";
-      book.style.height = height + "px";
       const first = this.makePage(firstUrl);
       book.appendChild(first.page);
       host.innerHTML = "";
@@ -119,6 +157,28 @@ window.LongboxPageMode = (() => {
 
       await this.waitForImage(first.img);
       if (this._destroyed) return false;
+
+      // Use the actual comic page's intrinsic aspect ratio rather than
+      // stretching the Turn.js book to the whole reader rectangle.
+      const naturalWidth = Number(first.img.naturalWidth) || 1;
+      const naturalHeight = Number(first.img.naturalHeight) || 1;
+      this.pageAspect = naturalWidth / naturalHeight;
+
+      const maxWidth = Math.max(240, Math.round(hostWidth * 0.96));
+      const maxHeight = Math.max(360, Math.round(hostHeight * 0.96));
+      let width = Math.min(maxWidth, Math.round(maxHeight * this.pageAspect));
+      let height = Math.round(width / this.pageAspect);
+      if (height > maxHeight) {
+        height = maxHeight;
+        width = Math.round(height * this.pageAspect);
+      }
+      this.pageWidth = width;
+      this.pageHeight = height;
+
+      book.style.width = width + "px";
+      book.style.height = height + "px";
+      book.style.left = Math.round((hostWidth - width) / 2) + "px";
+      book.style.top = Math.round((hostHeight - height) / 2) + "px";
 
       const $book = jQuery(book);
       this.pageCount = 1;
@@ -129,7 +189,7 @@ window.LongboxPageMode = (() => {
           width,
           height,
           display: "single",
-          autoCenter: true,
+          autoCenter: false,
           gradients: false,
           acceleration: false,
           elevation: 0,
@@ -185,11 +245,8 @@ window.LongboxPageMode = (() => {
     }
 
     resize() {
-      if (!this.book || !this.host) return;
-      const rect = this.host.getBoundingClientRect();
-      const width = Math.max(240, Math.round(rect.width || window.innerWidth));
-      const height = Math.max(360, Math.round(rect.height || window.innerHeight));
-      try { this.book.turn("size", width, height); } catch (_) {}
+      if (!this.book || !this.host || !this.pageAspect) return;
+      this.fitBookToHost();
     }
 
     next() { if (this.book) this.book.turn("next"); }
