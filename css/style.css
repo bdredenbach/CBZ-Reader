@@ -1326,3 +1326,27 @@ button.reader-btn.mini-btn {
   pointer-events: auto !important;
   touch-action: manipulation !important;
 }
+
+
+/* v65 — Page Mode owns horizontal gesture handling; normal tap zones do not
+   participate while the experimental flipbook is active. */
+.reader-stage.page-mode-active .reader-tap-zones,
+body.page-mode-active .reader-tap-zones {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+.reader-stage.page-mode-active,
+body.page-mode-active .reader-stage {
+  touch-action: pan-x !important;
+}
+
+.reader-stage.page-mode-active #pageflip-book,
+body.page-mode-active #pageflip-book {
+  touch-action: pan-x !important;
+}
+
+.reader-stage.page-mode-active #pageflip-book .longbox-turn-book,
+body.page-mode-active #pageflip-book .longbox-turn-book {
+  touch-action: pan-x !important;
+}
