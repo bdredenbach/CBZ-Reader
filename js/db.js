@@ -102,11 +102,27 @@ const LongboxDB = {
     return result ? result.blob : null;
   },
 
-  async getPageCount(comicId) {
+  async getPageInventory(comicId) {
     const t = await tx(["pages"], "readonly");
-    const idx = t.objectStore("pages").index("comicId");
-    const req = idx.count(IDBKeyRange.only(comicId));
-    return reqResult(req);
+    const store = t.objectStore("pages");
+    const result = [];
+    try {
+      const idx = store.index("comicId");
+      const rows = await reqResult(idx.getAll(IDBKeyRange.only(comicId)));
+      for (const row of (rows || [])) result.push(Number(row.index));
+    } catch (_) {
+      const rows = await reqResult(store.getAll());
+      for (const row of (rows || [])) {
+        if (row && row.comicId === comicId) result.push(Number(row.index));
+      }
+    }
+    result.sort((a, b) => a - b);
+    return result.filter((v, i, a) => Number.isFinite(v) && (i === 0 || v !== a[i - 1]));
+  },
+
+  async getPageCount(comicId) {
+    const indexes = await this.getPageInventory(comicId);
+    return indexes.length ? Math.max(...indexes) + 1 : 0;
   },
 
   // ---------------- Panel-detection cache ----------------

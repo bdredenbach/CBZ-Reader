@@ -188,8 +188,9 @@ const Reader = {
     // Treat that store as the source of truth if older metadata says a
     // different pageCount. This also makes the isolated Page-mode renderer
     // receive the exact same page count as the normal Longbox reader.
-    const actualPageCount = await LongboxDB.getPageCount(comicId);
-    if (actualPageCount > 0 && actualPageCount !== Number(this.comic.pageCount || 0)) {
+    const pageInventory = await LongboxDB.getPageInventory(comicId);
+    const actualPageCount = pageInventory.length ? Math.max(...pageInventory) + 1 : 0;
+    if (actualPageCount > 0) {
       this.comic.pageCount = actualPageCount;
       await LongboxDB.updateComic(comicId, { pageCount: actualPageCount });
     }
