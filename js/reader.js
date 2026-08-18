@@ -16,6 +16,7 @@ const Reader = {
   ty: 0,
   chromeVisible: true,
   chromeTimer: null,
+  _pageTurnDirection: null,
 
   currentPanels: [],       // detected panel rects for the visible page, fractional coords
   panelZoomEnabled: localStorage.getItem(PANEL_ZOOM_KEY) !== "0",
@@ -252,6 +253,11 @@ const Reader = {
       const img = document.createElement("img");
       img.src = url;
       img.draggable = false;
+      if (this.mode === "single" && this._pageTurnDirection) {
+        img.classList.add(
+          this._pageTurnDirection === "next" ? "page-flip-next" : "page-flip-prev"
+        );
+      }
       this.els.viewport.appendChild(img);
       renderedImages.push(img);
     });
@@ -267,6 +273,7 @@ const Reader = {
     }
     this.prefetch();
     this.loadPanelsForCurrentPage();
+    this._pageTurnDirection = null;
   },
 
   async stabilizeContinuousLayout() {
@@ -611,6 +618,7 @@ const Reader = {
 
   applyModeClass() {
     this.els.viewport.className = "page-viewport";
+    this.els.stage.classList.toggle("mode-page", this.mode === "single");
     this.els.stage.classList.toggle("mode-spread", this.mode === "spread");
     this.els.stage.classList.toggle("mode-scroll", this.mode === "scroll" || this.mode === "webcomic");
     this.els.stage.classList.toggle("mode-manga", this.mode === "manga");
@@ -768,6 +776,14 @@ const Reader = {
     const step = (this.mode === "spread" || this.mode === "manga") ? 2 : 1;
     i = Math.max(0, Math.min(this.comic.pageCount - 1, i));
     if (i === this.index && !opts.fromSlider) return;
+    const previousIndex = this.index;
+    if (this.mode === "single" && !opts.fromSlider && i !== previousIndex) {
+      this._pageTurnDirection = i > previousIndex ? "next" : "prev";
+      this.debugLog(`page flip: ${this._pageTurnDirection} (${previousIndex} -> ${i})`);
+    } else {
+      this._pageTurnDirection = null;
+    }
+
     this.index = i;
     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
       const target = this.els.stage.querySelector(`.scroll-page[data-index="${i}"]`);
