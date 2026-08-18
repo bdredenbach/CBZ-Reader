@@ -179,6 +179,46 @@ const Reader = {
     await this.open(target.id);
   },
 
+
+  initControlsPortal() {
+    if (this.controlsPortalInitialized) return;
+    const portal = document.getElementById("reader-controls-portal");
+    if (!portal) return;
+    const hosts = [
+      [document.querySelector(".reader-topbar"), document.getElementById("reader-controls-portal-top")],
+      [document.querySelector(".reader-bottombar"), document.getElementById("reader-controls-portal-bottom")]
+    ];
+    const syncers = [];
+    for (const [source, host] of hosts) {
+      if (!source || !host) continue;
+      const proxy = source.cloneNode(true);
+      proxy.removeAttribute("id");
+      proxy.querySelectorAll("[id]").forEach(e => e.removeAttribute("id"));
+      host.appendChild(proxy);
+      const real = () => Array.from(source.querySelectorAll("button,input,select,a,[role='button']"));
+      Array.from(proxy.querySelectorAll("button,input,select,a,[role='button']")).forEach((c,i) => {
+        c.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); real()[i]?.click(); });
+        c.addEventListener("pointerdown", e => e.stopPropagation());
+      });
+      const sync = () => {
+        const r = source.getBoundingClientRect();
+        proxy.style.width = `${r.width}px`; proxy.style.height = `${r.height}px`;
+        proxy.style.marginLeft = `${r.left}px`; proxy.style.marginTop = `${r.top}px`;
+      };
+      syncers.push(sync);
+    }
+    this.controlsPortal = { portal, sync: () => syncers.forEach(f => f()) };
+    this.controlsPortalInitialized = true;
+    this.controlsPortal.sync();
+  },
+
+  setControlsPortalActive(active) {
+    if (!this.controlsPortalInitialized) this.initControlsPortal();
+    if (!this.controlsPortal) return;
+    this.controlsPortal.portal.classList.toggle("active", !!active);
+    this.controlsPortal.sync();
+  },
+
   async open(comicId) {
     this.comic = await LongboxDB.getComic(comicId);
     if (!this.comic) return;
@@ -244,7 +284,9 @@ const Reader = {
     // original v56 rendering path untouched.
     if (this.mode === "single") {
       if (!this.pageModeEngine) {
-        this.pageModeEngine = new window.LongboxPageMode({
+        this.initControlsPortal();
+      this.setControlsPortalActive(true);
+      this.pageModeEngine = new window.LongboxPageMode({
           getIssue: () => this.comic,
           getPageUrl: (i) => this.getPageUrl(i),
           getIndex: () => this.index,
