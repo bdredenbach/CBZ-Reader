@@ -84,6 +84,13 @@ window.LongboxPageMode = (() => {
       book.style.width = width + "px";
       book.style.height = height + "px";
 
+      // v68: build the pages first, but wait until every image has either
+      // loaded or failed before Turn.js measures/initializes the book.
+      // Mobile browsers can stall when Turn.js measures a large set of
+      // still-loading images during initialization.
+      const pageNodes = [];
+      const imageLoads = [];
+
       for (let i = 0; i < issue.pageCount; i++) {
         const url = await this.getPageUrl(i);
         if (!url) continue;
@@ -96,29 +103,46 @@ window.LongboxPageMode = (() => {
         img.alt = "";
         img.draggable = false;
         img.decoding = "async";
+        img.loading = "eager";
 
         page.appendChild(img);
-        book.appendChild(page);
+        pageNodes.push(page);
+        imageLoads.push(new Promise(resolve => {
+          if (img.complete) { resolve(); return; }
+          img.addEventListener("load", resolve, { once: true });
+          img.addEventListener("error", resolve, { once: true });
+        }));
       }
 
       host.innerHTML = "";
       host.appendChild(book);
+      pageNodes.forEach(page => book.appendChild(page));
+
+      await Promise.all(imageLoads);
 
       const $book = jQuery(book);
       this.pageCount = book.children.length;
 
+      this.onState(`initializing=${this.pageCount}`);
+
+      // v68 intentionally uses conservative Turn.js settings. We first need
+      // a stable, interactive book on mobile before re-enabling visual extras
+      // such as gradients, acceleration, and elevation.
       $book.turn({
         width,
         height,
         display: "single",
         autoCenter: true,
-        gradients: true,
-        acceleration: true,
-        elevation: 70,
-        duration: 850,
+        gradients: false,
+        acceleration: false,
+        elevation: 0,
+        duration: 600,
         direction: "ltr",
+        pages: this.pageCount,
         page: Math.max(1, Math.min(this.getIndex() + 1, this.pageCount))
       });
+
+      this.onState(`ready=${this.pageCount}`);
 
       $book.bind("turned", (_event, page) => {
         const index = Math.max(0, Number(page) - 1);
