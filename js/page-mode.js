@@ -79,11 +79,19 @@ window.LongboxPageMode = (() => {
 
       host.style.display = "block";
       host.style.position = "absolute";
-      host.style.inset = "0";
-      host.style.width = "100%";
-      host.style.height = "100%";
+      // Keep the experimental flip surface inside the reader's usable area.
+      // The reader chrome is a sibling overlay, so a full-screen Turn.js
+      // surface can otherwise extend underneath the controls and steal touch
+      // gestures. Reserve the top and bottom chrome areas while Page Mode is
+      // active.
+      host.style.top = "calc(52px + var(--safe-top, 0px))";
+      host.style.right = "0";
+      host.style.bottom = "calc(112px + var(--safe-bottom, 0px))";
+      host.style.left = "0";
+      host.style.width = "auto";
+      host.style.height = "auto";
       host.style.overflow = "hidden";
-      host.style.zIndex = "50";
+      host.style.zIndex = "4";
       host.style.pointerEvents = "auto";
 
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
