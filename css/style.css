@@ -1270,3 +1270,21 @@ button.reader-btn.mini-btn {
 .page-mode-isolated-host + #pageflip-book {
   visibility: visible;
 }
+
+/* v61: StPageFlip HTML/soft-page renderer */
+.pageflip-book .longbox-flip-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+.pageflip-book .longbox-flip-page > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
