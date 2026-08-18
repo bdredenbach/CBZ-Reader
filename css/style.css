@@ -1299,3 +1299,30 @@ button.reader-btn.mini-btn {
 .longbox-turn-book .turn-page {
   background: transparent;
 }
+
+/* v63: Page-mode interaction overlay.
+ * The dedicated #pageflip-book sits above the normal reader surface.
+ * The old viewport remains an inert underlay so Longbox's other modes/state
+ * remain intact without receiving Page-mode gestures.
+ */
+#pageflip-book.pageflip-book {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 50 !important;
+  display: none;
+  overflow: hidden;
+  pointer-events: auto !important;
+  background: transparent;
+}
+.page-mode-underlay {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.pageflip-book .longbox-turn-book {
+  z-index: 51;
+}
+.pageflip-book .longbox-turn-page {
+  z-index: 52;
+}
