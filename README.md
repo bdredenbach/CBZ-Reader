@@ -94,5 +94,5 @@ Page mode uses a 3D page-turn transition when moving forward or backward. Other 
 Page mode uses a book-like outgoing-page turn. Other reading layouts remain unchanged.
 
 
-## Test_Branch v57 — StPageFlip experiment
-Page mode uses StPageFlip 2.0.7 loaded from jsDelivr to test a physical fold/curl page transition. Other reading modes remain unchanged. This is experimental and is not the offline-safe baseline.
+## v58 — StPageFlip viewport-fit experiment
+Page mode only: StPageFlip is sized from the actual reader viewport and fills it. Spread, Scroll, Manga, and Webcomic remain on the existing renderer.
