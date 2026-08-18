@@ -1203,76 +1203,20 @@ button.reader-btn.mini-btn {
   }
 }
 
-/* v58: StPageFlip experiment — fill the reader viewport */
-#pageflip-book {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 3;
-  display: none;
-  overflow: hidden;
-  background: transparent;
-}
-#pageflip-book .stf__parent {
-  width: 100% !important;
-  height: 100% !important;
-}
-#pageflip-book .stf__block {
-  max-width: none !important;
-  max-height: none !important;
-}
-#pageflip-book canvas {
-  display: block;
-  width: 100% !important;
-  height: 100% !important;
-}
-.page-viewport.pageflip-source {
-  visibility: hidden;
-}
 
-/* v59: StPageFlip owns Page mode completely */
-.pageflip-book {
+/* v57 — isolated Turn.js Page Mode test. The normal reader remains intact. */
+#pageflip-book.pageflip-book {
   position: absolute !important;
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
-  z-index: 5 !important;
+  z-index: 50 !important;
   display: none;
   overflow: hidden;
+  pointer-events: auto !important;
   background: transparent;
 }
-.pageflip-book .stf__parent {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-}
-.pageflip-book .stf__block {
-  width: 100% !important;
-  height: 100% !important;
-}
-.pageflip-book canvas {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
-}
-.page-viewport.pageflip-host {
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-
-/* v60: isolated Page mode host */
-.page-mode-isolated-host {
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-.page-mode-isolated-host + #pageflip-book {
-  visibility: visible;
-}
-
-/* v62: Turn.js Page-mode renderer */
-.page-mode-isolated-host {
+.page-mode-underlay {
   visibility: hidden !important;
   pointer-events: none !important;
 }
@@ -1296,33 +1240,4 @@ button.reader-btn.mini-btn {
   -webkit-user-drag: none;
   pointer-events: none;
 }
-.longbox-turn-book .turn-page {
-  background: transparent;
-}
-
-/* v63: Page-mode interaction overlay.
- * The dedicated #pageflip-book sits above the normal reader surface.
- * The old viewport remains an inert underlay so Longbox's other modes/state
- * remain intact without receiving Page-mode gestures.
- */
-#pageflip-book.pageflip-book {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  z-index: 50 !important;
-  display: none;
-  overflow: hidden;
-  pointer-events: auto !important;
-  background: transparent;
-}
-.page-mode-underlay {
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-.pageflip-book .longbox-turn-book {
-  z-index: 51;
-}
-.pageflip-book .longbox-turn-page {
-  z-index: 52;
-}
+.longbox-turn-book .turn-page { background: transparent; }
