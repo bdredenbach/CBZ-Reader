@@ -114,9 +114,5 @@ Page mode remains isolated in `js/page-mode.js`, but the renderer is now Turn.js
 Fixes v62's layering issue: the isolated Turn.js page renderer now mounts in the dedicated `#pageflip-book` overlay rather than inside the hidden page viewport. The overlay captures page-mode gestures so double-tap/hold events cannot fall through to Longbox bubble/panel handlers underneath.
 
 
-## v64 — Page count handoff fix
-The reader now reconciles a comic's stored `pageCount` against the actual IndexedDB page records and passes the verified count explicitly into isolated Page mode. This prevents the experimental renderer from treating a multi-page issue as a one-page book when metadata is stale.
-
-
-## v65 — Page inventory fallback
-Page mode now derives the page range from actual IndexedDB page records, using the comicId index when available and falling back to a full store scan for older databases. It uses the highest stored page index rather than assuming a contiguous count.
+## v66 — Restore authoritative comic metadata
+v64/v65's page-inventory experiment was non-destructive in intent but could incorrectly collapse stored pageCount to 1 when the page inventory query did not match the existing database. v66 removes that experiment and restores the original Longbox behavior: the imported comic's stored `pageCount` remains authoritative. The isolated Page-mode overlay/Turn.js experiment is retained.
