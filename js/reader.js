@@ -183,8 +183,22 @@ const Reader = {
   async open(comicId) {
     this.comic = await LongboxDB.getComic(comicId);
     if (!this.comic) return;
+
+    // The archive importer writes one IndexedDB page record per image.
+    // Treat that store as the source of truth if older metadata says a
+    // different pageCount. This also makes the isolated Page-mode renderer
+    // receive the exact same page count as the normal Longbox reader.
+    const actualPageCount = await LongboxDB.getPageCount(comicId);
+    if (actualPageCount > 0 && actualPageCount !== Number(this.comic.pageCount || 0)) {
+      this.comic.pageCount = actualPageCount;
+      await LongboxDB.updateComic(comicId, { pageCount: actualPageCount });
+    }
+
     LongboxDB.updateComic(comicId, { lastOpenedAt: Date.now() });
-    this.index = this.comic.lastPage || 0;
+    this.index = Math.max(
+      0,
+      Math.min(this.comic.lastPage || 0, Math.max(0, this.comic.pageCount - 1))
+    );
     this.mode = this.comic.readMode || "single";
     this.theme = this.comic.theme || "dark";
     this.pageUrls = new Array(this.comic.pageCount).fill(null);
@@ -246,6 +260,7 @@ const Reader = {
       if (!this.pageModeEngine) {
         this.pageModeEngine = new window.LongboxPageMode({
           getIssue: () => this.comic,
+          getPageCount: () => this.comic.pageCount,
           getPageUrl: (i) => this.getPageUrl(i),
           getIndex: () => this.index,
           setIndex: (i) => { this.index = i; },

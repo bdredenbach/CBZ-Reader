@@ -102,6 +102,13 @@ const LongboxDB = {
     return result ? result.blob : null;
   },
 
+  async getPageCount(comicId) {
+    const t = await tx(["pages"], "readonly");
+    const idx = t.objectStore("pages").index("comicId");
+    const req = idx.count(IDBKeyRange.only(comicId));
+    return reqResult(req);
+  },
+
   // ---------------- Panel-detection cache ----------------
   // `panels` is null/undefined = "not yet computed"; an array (possibly
   // empty) = "computed, here's what we found" — so we never redo the work.
