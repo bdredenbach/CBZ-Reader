@@ -17,6 +17,9 @@ const Reader = {
   chromeVisible: true,
   chromeTimer: null,
   _pageTurnDirection: null,
+  pageFlip: null,
+  pageFlipComicId: null,
+  pageFlipSyncing: false,
 
   currentPanels: [],       // detected panel rects for the visible page, fractional coords
   panelZoomEnabled: localStorage.getItem(PANEL_ZOOM_KEY) !== "0",
@@ -35,6 +38,7 @@ const Reader = {
     this.els.view = document.getElementById("reader-view");
     this.els.stage = document.getElementById("reader-stage");
     this.els.viewport = document.getElementById("page-viewport");
+    this.els.pageFlipBook = document.getElementById("pageflip-book");
     this.els.chrome = document.getElementById("reader-chrome");
     this.els.title = document.getElementById("reader-title");
     this.els.seriesNav = document.getElementById("series-nav");
@@ -201,6 +205,7 @@ const Reader = {
 
   close() {
     this.saveProgress();
+    this.destroyPageFlip();
     this.revokeAll();
     window.LongboxApp.closeReader();
   },
@@ -233,123 +238,132 @@ const Reader = {
     this.saveProgress();
   },
 
+  async destroyPageFlip() {
+    if (this.pageFlip) {
+      try { this.pageFlip.destroy(); } catch (_) {}
+    }
+    this.pageFlip = null;
+    this.pageFlipComicId = null;
+    this.pageFlipSyncing = false;
+    if (this.els.pageFlipBook) {
+      this.els.pageFlipBook.innerHTML = "";
+      this.els.pageFlipBook.style.display = "none";
+    }
+    this.els.viewport?.classList.remove("pageflip-source");
+  },
+
+  async ensurePageFlip() {
+    if (this.mode !== "single" || !this.comic || !window.St?.PageFlip) return null;
+    if (this.pageFlip && this.pageFlipComicId === this.comic.id) return this.pageFlip;
+
+    await this.destroyPageFlip();
+
+    const firstUrl = await this.getPageUrl(0);
+    if (!firstUrl) return null;
+
+    const probe = new Image();
+    probe.src = firstUrl;
+    await (probe.decode ? probe.decode().catch(() => {}) :
+      (probe.complete ? Promise.resolve() : new Promise(resolve => {
+        probe.addEventListener("load", resolve, { once: true });
+        probe.addEventListener("error", resolve, { once: true });
+      })));
+
+    const width = probe.naturalWidth || 600;
+    const height = probe.naturalHeight || 900;
+    const urls = [];
+    for (let i = 0; i < this.comic.pageCount; i++) {
+      const url = await this.getPageUrl(i);
+      if (url) urls.push(url);
+    }
+
+    const book = this.els.pageFlipBook;
+    if (!book) return null;
+    book.innerHTML = "";
+    book.style.display = "block";
+
+    const flip = new St.PageFlip(book, {
+      width,
+      height,
+      size: "stretch",
+      minWidth: 180,
+      maxWidth: 1400,
+      minHeight: 260,
+      maxHeight: 2000,
+      maxShadowOpacity: 0.55,
+      drawShadow: true,
+      flippingTime: 650,
+      usePortrait: true,
+      showCover: false,
+      mobileScrollSupport: false,
+      swipeDistance: 30
+    });
+
+    flip.on("flip", (e) => {
+      if (this.mode !== "single" || !this.comic) return;
+      const nextIndex = Number(e.data);
+      if (!Number.isInteger(nextIndex)) return;
+      this.index = Math.max(0, Math.min(this.comic.pageCount - 1, nextIndex));
+      this.updateSliderLabel();
+      this.updateBookmarkFlag();
+      this.saveProgress();
+      this.showChrome();
+      this.debugLog(`StPageFlip flip -> page ${this.index + 1}`);
+      this.loadPanelsForCurrentPage();
+    });
+    flip.on("changeState", (e) => this.debugLog(`StPageFlip state=${e.data}`));
+
+    flip.loadFromImages(urls);
+    flip.turnToPage(this.index);
+
+    this.pageFlip = flip;
+    this.pageFlipComicId = this.comic.id;
+    this.els.viewport.classList.add("pageflip-source");
+    this.debugLog(`StPageFlip ready: ${urls.length} pages`);
+    return flip;
+  },
+
   async renderPaged() {
     this.els.stage.classList.remove("mode-scroll");
     this.els.viewport.style.width = "";
     this.els.viewport.style.height = "";
 
-    const oldPage = this.mode === "single"
-      ? this.els.viewport.querySelector("img")
-      : null;
-    const oldPageSrc = oldPage ? oldPage.src : null;
+    if (this.mode === "single") {
+      const flip = await this.ensurePageFlip();
+      if (flip) {
+        const url = await this.getPageUrl(this.index);
+        this.els.viewport.innerHTML = "";
+        if (url) {
+          const img = document.createElement("img");
+          img.src = url;
+          img.draggable = false;
+          this.els.viewport.appendChild(img);
+        }
+        this.els.loading.style.display = "none";
+        if (flip.getCurrentPageIndex() !== this.index) flip.turnToPage(this.index);
+        this.updateSliderLabel();
+        this.updateBookmarkFlag();
+        return;
+      }
+    }
 
-    const oldTurn = this.els.viewport.querySelector(".page-turn-overlay");
-    if (oldTurn) oldTurn.remove();
-
-    this.els.viewport.innerHTML = "";
+    await this.destroyPageFlip();
     this.els.loading.style.display = "flex";
-
     const indices = this.mode === "spread"
       ? [this.index, this.index + 1].filter((i) => i < this.comic.pageCount)
       : [this.index];
-
     const urls = await Promise.all(indices.map((i) => this.getPageUrl(i)));
     this.els.loading.style.display = "none";
     this.els.viewport.innerHTML = "";
-    const renderedImages = [];
     urls.forEach((url) => {
       if (!url) return;
       const img = document.createElement("img");
       img.src = url;
       img.draggable = false;
       this.els.viewport.appendChild(img);
-      renderedImages.push(img);
     });
-
-    if (this.mode === "spread" || (this.mode === "single" && this._pageTurnDirection)) {
-      await Promise.all(renderedImages.map(img =>
-        img.decode
-          ? img.decode().catch(() => {})
-          : (img.complete
-              ? Promise.resolve()
-              : new Promise(resolve => img.addEventListener("load", resolve, { once: true })))
-      ));
-    }
-
-    if (this.mode === "single" && this._pageTurnDirection && oldPageSrc) {
-      const incoming = renderedImages[0];
-      if (incoming) {
-        const overlay = document.createElement("div");
-        overlay.className = "page-turn-overlay";
-        overlay.setAttribute("aria-hidden", "true");
-
-        const sheet = document.createElement("img");
-        sheet.className = "page-turn-sheet";
-        sheet.src = oldPageSrc;
-        sheet.draggable = false;
-
-        overlay.appendChild(sheet);
-        this.els.viewport.appendChild(overlay);
-
-        const left = incoming.offsetLeft;
-        const top = incoming.offsetTop;
-        const width = incoming.offsetWidth;
-        const height = incoming.offsetHeight;
-
-        overlay.style.left = `${left}px`;
-        overlay.style.top = `${top}px`;
-        overlay.style.width = `${width}px`;
-        overlay.style.height = `${height}px`;
-
-        const directionClass =
-          this._pageTurnDirection === "next"
-            ? "page-turn-next"
-            : "page-turn-prev";
-        overlay.classList.add(directionClass);
-
-        const remove = () => {
-          overlay.remove();
-        };
-        overlay.addEventListener("animationend", remove, { once: true });
-        setTimeout(remove, 800);
-      }
-    }
-
-    this.prefetch();
-    this.loadPanelsForCurrentPage();
-    this._pageTurnDirection = null;
   },
 
-  async stabilizeContinuousLayout() {
-    if (!(this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) return;
-
-    // On first entry Android can still be settling the reader viewport. Wait
-    // for a couple of frames before using its dimensions for page sizing.
-    await new Promise(resolve => {
-      let frames = 3;
-      const tick = () => {
-        if (--frames <= 0) resolve();
-        else requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
-
-    if (!(this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) return;
-
-    const stage = this.els.stage;
-    const viewport = this.els.viewport;
-    const width = stage.clientWidth;
-    const height = stage.clientHeight;
-
-    if (width > 0 && height > 0) {
-      viewport.style.height = `${height}px`;
-      if (this.mode === "webcomic") {
-        viewport.style.width = `${width}px`;
-      }
-    }
-
-    this.debugLog(`continuous layout settled: ${this.mode} ${width}x${height}`);
-  },
 
   async renderContinuous() {
     await this.stabilizeContinuousLayout();
@@ -709,6 +723,7 @@ const Reader = {
     if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
     const wasSpread = this.mode === "spread";
+    if (mode !== "single") await this.destroyPageFlip();
     this.mode = mode;
     this.comic.readMode = mode;
     LongboxDB.updateComic(this.comic.id, { readMode: mode });
@@ -829,6 +844,14 @@ const Reader = {
     }
 
     this.index = i;
+    if (this.mode === "single" && this.pageFlip && !opts.fromPageFlip) {
+      this.pageFlip.turnToPage(i);
+      this.updateSliderLabel();
+      this.updateBookmarkFlag();
+      this.saveProgress();
+      this.showChrome();
+      return;
+    }
     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
       const target = this.els.stage.querySelector(`.scroll-page[data-index="${i}"]`);
       if (target) target.scrollIntoView({ block: "start", behavior: opts.fromSlider ? "auto" : "smooth" });
@@ -841,13 +864,21 @@ const Reader = {
   },
 
   next() {
-    const step = this.mode === "spread" ? 2 : 1;
     this.showChrome();
+    if (this.mode === "single" && this.pageFlip) {
+      this.pageFlip.flipNext("top");
+      return;
+    }
+    const step = this.mode === "spread" ? 2 : 1;
     this.goTo(this.index + step);
   },
   prev() {
-    const step = this.mode === "spread" ? 2 : 1;
     this.showChrome();
+    if (this.mode === "single" && this.pageFlip) {
+      this.pageFlip.flipPrev("top");
+      return;
+    }
+    const step = this.mode === "spread" ? 2 : 1;
     this.goTo(this.index - step);
   },
 
@@ -1306,7 +1337,7 @@ const Reader = {
           if (panStart) {
             const dx = endTouch.clientX - panStart.x;
             const dy = endTouch.clientY - panStart.y;
-            if (!this.focusMode && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+            if (!this.focusMode && !this.pageFlip && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
               this.debugLog(`-> swipe page-turn dx=${dx.toFixed(0)}`);
               if (dx < 0) this.next(); else this.prev();
               panStart = null;
@@ -1387,7 +1418,7 @@ const Reader = {
         this.handleSingleTap({ x: e.clientX, y: e.clientY });
       } else if (mouseDown && mouseMoved && this.scale <= 1.02) {
         const dx = e.clientX - mStart.x, dy = e.clientY - mStart.y;
-        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+        if (!this.pageFlip && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
           if (dx < 0) this.next(); else this.prev();
         }
       }
