@@ -14,7 +14,7 @@ window.LongboxPageMode = (() => {
       this.host = null;
       this.flip = null;
       this.issueKey = null;
-      this.urls = [];
+      this.pages = [];
     }
 
     async destroy() {
@@ -23,7 +23,7 @@ window.LongboxPageMode = (() => {
       }
       this.flip = null;
       this.issueKey = null;
-      this.urls = [];
+      this.pages = [];
       if (this.host) {
         this.host.innerHTML = "";
         this.host.style.display = "none";
@@ -49,7 +49,6 @@ window.LongboxPageMode = (() => {
       host.style.width = "100%";
       host.style.height = "100%";
 
-      // Wait for the reader layout to settle before measuring it.
       await new Promise(resolve =>
         requestAnimationFrame(() =>
           requestAnimationFrame(resolve)
@@ -60,14 +59,27 @@ window.LongboxPageMode = (() => {
       const width = Math.max(240, Math.round(rect.width || window.innerWidth));
       const height = Math.max(360, Math.round(rect.height || window.innerHeight));
 
-      const urls = [];
+      const pages = [];
       for (let i = 0; i < issue.pageCount; i++) {
         const url = await this.getPageUrl(i);
-        if (url) urls.push(url);
-      }
-      if (!urls.length) return false;
+        if (!url) continue;
 
-      this.urls = urls;
+        const page = document.createElement("div");
+        page.className = "longbox-flip-page";
+        page.dataset.density = "soft";
+
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = "";
+        img.draggable = false;
+        img.decoding = "async";
+
+        page.appendChild(img);
+        pages.push(page);
+      }
+
+      if (!pages.length) return false;
+      this.pages = pages;
 
       const flip = new St.PageFlip(host, {
         width,
@@ -82,7 +94,7 @@ window.LongboxPageMode = (() => {
         usePortrait: true,
         drawShadow: true,
         maxShadowOpacity: 0.65,
-        flippingTime: 720,
+        flippingTime: 900,
         mobileScrollSupport: false,
         swipeDistance: 20,
         clickEventForward: true,
@@ -100,7 +112,18 @@ window.LongboxPageMode = (() => {
         this.onState(e.data);
       });
 
-      flip.loadFromImages(urls);
+      flip.on("changeOrientation", e => {
+        this.onState(`orientation=${e.data}`);
+      });
+
+      flip.on("init", e => {
+        this.onState(`init=${e.data?.mode || "unknown"}`);
+      });
+
+      // IMPORTANT: HTML pages with data-density="soft" use StPageFlip's
+      // polygon-based soft-page renderer. loadFromImages uses the canvas
+      // renderer and does not expose the soft/hard HTML page density.
+      flip.loadFromHtml(pages);
 
       await new Promise(resolve =>
         requestAnimationFrame(() =>
@@ -110,7 +133,7 @@ window.LongboxPageMode = (() => {
 
       const index = Math.max(
         0,
-        Math.min(this.getIndex(), urls.length - 1)
+        Math.min(this.getIndex(), pages.length - 1)
       );
       flip.turnToPage(index);
 
@@ -120,16 +143,16 @@ window.LongboxPageMode = (() => {
     }
 
     next() {
-      if (this.flip) this.flip.flipNext("top");
+      if (this.flip) this.flip.flipNext("bottom");
     }
 
     prev() {
-      if (this.flip) this.flip.flipPrev("top");
+      if (this.flip) this.flip.flipPrev("bottom");
     }
 
     goTo(index) {
       if (this.flip) {
-        const i = Math.max(0, Math.min(index, this.urls.length - 1));
+        const i = Math.max(0, Math.min(index, this.pages.length - 1));
         this.flip.turnToPage(i);
       }
     }
