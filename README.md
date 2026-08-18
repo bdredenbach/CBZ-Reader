@@ -108,3 +108,7 @@ Page mode is delegated to `js/page-mode.js`, while `reader.js` remains the share
 
 ## v62 — Turn.js Page Mode experiment
 Page mode remains isolated in `js/page-mode.js`, but the renderer is now Turn.js instead of StPageFlip. Turn.js is a separate HTML5/jQuery page-flip engine with gradients and acceleration. This test loads the engine from CDN; if the curl is successful, the dependency should be vendored locally before shipping so the PWA remains offline-capable.
+
+
+## v63 — Page-mode overlay/event isolation
+Fixes v62's layering issue: the isolated Turn.js page renderer now mounts in the dedicated `#pageflip-book` overlay rather than inside the hidden page viewport. The overlay captures page-mode gestures so double-tap/hold events cannot fall through to Longbox bubble/panel handlers underneath.
