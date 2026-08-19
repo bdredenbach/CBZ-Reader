@@ -378,6 +378,13 @@ button {
   touch-action: none;
   overflow: hidden;
 }
+.reader-stage.mode-scroll {
+  display: block;
+  overflow-y: auto;
+  overflow-x: hidden;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
 
 .page-viewport {
   width: 100%; height: 100%;
@@ -399,6 +406,16 @@ button {
 }
 .mode-spread .page-viewport img {
   max-width: 50%;
+}
+
+.mode-scroll .scroll-page {
+  display: block;
+  width: 100%;
+  margin: 0 auto;
+}
+.mode-scroll .scroll-page img {
+  width: 100%;
+  display: block;
 }
 
 .reader-chrome {
@@ -429,12 +446,6 @@ button {
 }
 .reader-chrome.visible .reader-topbar { opacity: 1; transform: translateY(0); padding-top: calc(12px + var(--safe-top)); }
 .reader-chrome.visible .reader-bottombar { opacity: 1; transform: translateY(0); padding-bottom: calc(12px + var(--safe-bottom)); }
-
-.reader-chrome:not(.visible) .reader-bottombar {
-  opacity: 0;
-  transform: translateY(18px);
-  pointer-events: none;
-}
 
 .reader-btn {
   background: rgba(255,255,255,0.08);
@@ -516,7 +527,8 @@ button {
   font-size: 13px;
 }
 
-/* Bookmark flag */
+/* Bookmark flag shown on a page — sits below the topbar's button row so it
+   never collides with the bookmark button (or anything else) up there. */
 .bookmark-flag {
   position: absolute;
   top: calc(60px + var(--safe-top));
@@ -527,7 +539,7 @@ button {
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
 }
 
-/* ---- Help drawer ---- */
+/* ---- Help drawer: a slide-in reference panel for the reader controls ---- */
 .help-drawer {
   position: fixed; inset: 0;
   z-index: 160;
@@ -609,10 +621,20 @@ button {
   font-size: 13px;
   line-height: 1.55;
 }
-.help-list li { margin: 0 0 4px; }
-.help-list li:last-child { margin-bottom: 0; }
-.help-list li b { color: var(--paper); font-weight: 600; }
+.help-list li {
+  margin: 0 0 4px;
+}
+.help-list li:last-child {
+  margin-bottom: 0;
+}
+.help-list li b {
+  color: var(--paper);
+  font-weight: 600;
+}
 
+/* Inert preview controls inside the help drawer — visually match the real
+   buttons but are deliberately never wired to any click handler or query
+   that the real controls use, so they can't accidentally become functional. */
 .help-item {
   display: flex;
   align-items: center;
@@ -620,7 +642,9 @@ button {
   margin-bottom: 10px;
   flex-wrap: wrap;
 }
-.help-item-spaced { margin-left: 6px; }
+.help-item-spaced {
+  margin-left: 6px;
+}
 .mini-btn {
   pointer-events: none;
   font-size: 10px !important;
@@ -649,6 +673,19 @@ button.reader-btn.mini-btn {
   .comic-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 }
 
+.bubble-zoom-alt-overlay {
+  position: absolute;
+  z-index: 12;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  image-rendering: auto;
+  filter: drop-shadow(0 8px 18px rgba(0,0,0,.45));
+  transform-origin: center center;
+}
+
+
 /* ===== Focus zoom transitions ===== */
 .reader-focus-dim {
   position: absolute; inset: 0;
@@ -660,6 +697,9 @@ button.reader-btn.mini-btn {
 .reader-focus-dim.active { opacity: 1; }
 .reader-focus-dim.no-transition { transition: none !important; }
 
+/* The selected panel is rendered as a high-resolution overlay while the
+   original page remains underneath. It starts exactly at the detected frame
+   and animates into the focused position. */
 .panel-focus-overlay {
   position: absolute;
   z-index: 12;
@@ -669,11 +709,12 @@ button.reader-btn.mini-btn {
   transform: translate3d(0,0,0) scale(1);
   opacity: 0;
   border-radius: 1px;
-  box-shadow: 0 5px 16px rgba(0,0,0,.22);
+  box-shadow: 0 10px 28px rgba(0,0,0,.42);
   transition:
     transform 420ms cubic-bezier(0.22,0.78,0.24,1),
     opacity 180ms ease,
     box-shadow 420ms cubic-bezier(0.22,0.78,0.24,1);
+  box-shadow: 0 5px 16px rgba(0,0,0,.22);
   will-change: transform, opacity, box-shadow;
 }
 .panel-focus-overlay canvas {
@@ -694,33 +735,39 @@ button.reader-btn.mini-btn {
     opacity 180ms ease;
 }
 
-/* Bubble overlay */
+/* Bubble overlay keeps the same focus language as panel focus. */
 .bubble-zoom-alt-overlay {
   position: absolute;
   z-index: 12;
   pointer-events: none;
-  user-select: none;
-  -webkit-user-drag: none;
-  image-rendering: auto;
   transform: scale(0.78);
   transform-origin: center center;
   opacity: 0;
   filter: drop-shadow(0 8px 18px rgba(0,0,0,.45));
-  box-shadow: 0 18px 44px rgba(0,0,0,.62);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
   transition: transform 280ms cubic-bezier(0.22,0.78,0.24,1), opacity 180ms ease;
-  will-change: transform, opacity, filter;
+  will-change: transform, opacity;
 }
 .bubble-zoom-alt-overlay.active { transform: scale(1); opacity: 1; }
 .bubble-zoom-alt-overlay.closing { transform: scale(0.78); opacity: 0; }
 
-/* Continuous reading modes */
+/* v27: make the bottom reader controls explicitly follow chrome auto-hide. */
+.reader-chrome:not(.visible) .reader-bottombar {
+  opacity: 0;
+  transform: translateY(18px);
+  pointer-events: none;
+}
+.reader-chrome.visible .reader-bottombar {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* v29: continuous reading modes.
+   Scroll = horizontal LTR, Manga = horizontal RTL, Webcomic = vertical. */
 .mode-scroll .page-viewport,
 .mode-manga .page-viewport,
 .mode-webcomic .page-viewport {
   min-width: 100%;
-  min-height: 0;
+  min-height: 100%;
   align-items: initial;
   justify-content: initial;
 }
@@ -743,9 +790,7 @@ button.reader-btn.mini-btn {
   flex: 0 0 auto;
   width: auto;
   height: 100%;
-  min-height: 0;
   margin: 0;
-  position: relative;
 }
 .mode-scroll .scroll-page img {
   display: block;
@@ -773,9 +818,7 @@ button.reader-btn.mini-btn {
   flex: 0 0 auto;
   width: auto;
   height: 100%;
-  min-height: 0;
   margin: 0;
-  position: relative;
 }
 .mode-manga .scroll-page img {
   display: block;
@@ -800,7 +843,6 @@ button.reader-btn.mini-btn {
   display: block;
   width: 100%;
   margin: 0 auto;
-  position: relative;
 }
 .mode-webcomic .scroll-page img {
   display: block;
@@ -809,12 +851,10 @@ button.reader-btn.mini-btn {
   max-width: none;
 }
 
-.scroll-page .bubble-zoom-alt-overlay {
-  position: absolute;
-  z-index: 13;
+/* v30: keep theme swatches with the bubble controls. */
+.reader-options-row {
+  align-items: center;
 }
-
-.reader-options-row { align-items: center; }
 .reader-options-row .theme-row {
   margin-left: auto;
   display: flex;
@@ -822,22 +862,47 @@ button.reader-btn.mini-btn {
   gap: 8px;
 }
 
-/* Toolbar and Sort Layouts */
+/* v32: Bubble Zoom overlays in continuous modes are anchored to the
+   .scroll-page that contains the tapped bubble. */
+.scroll-page {
+  position: relative;
+}
+.scroll-page .bubble-zoom-alt-overlay {
+  position: absolute;
+  z-index: 13;
+}
+
+/* v34: continuous horizontal modes use the actual reader viewport height.
+   This prevents the first visible page from rendering at a tiny intrinsic
+   size while the viewport is settling. */
+.reader-stage.mode-scroll .page-viewport,
+.reader-stage.mode-manga .page-viewport {
+  min-height: 0;
+}
+.reader-stage.mode-scroll .scroll-page,
+.reader-stage.mode-manga .scroll-page {
+  min-height: 0;
+}
+
+/* v35: Bubble Zoom polish. */
+.bubble-zoom-alt-overlay { backface-visibility: hidden; -webkit-backface-visibility: hidden; image-rendering: auto; box-shadow: 0 18px 44px rgba(0,0,0,.62); }
+
+/* v39: library toolbar separation and right-aligned utility controls. */
 .library-sort-row,
 .library-action-row {
   width: 100%;
-  display: flex;
-  flex-wrap: wrap;
-  row-gap: 8px;
+  justify-content: space-between;
   align-items: center;
 }
-.library-sort-row { justify-content: flex-start; }
-.library-action-row { justify-content: space-between; }
 
-.library-sort-row .sort-direction-btn,
-.library-action-row .install-btn {
+.library-sort-row {
+  justify-content: flex-start;
+}
+
+.library-sort-row .sort-direction-btn {
   margin-left: auto;
 }
+
 .library-action-row .library-action-group {
   display: flex;
   align-items: center;
@@ -845,120 +910,75 @@ button.reader-btn.mini-btn {
   flex-wrap: wrap;
 }
 
-.collection-sort-row { margin: 0 0 16px; }
+.library-action-row .install-btn {
+  margin-left: auto;
+}
+
+@media (max-width: 560px) {
+  .library-sort-row .sort-direction-btn {
+    margin-left: auto;
+  }
+  .library-action-row {
+    gap: 8px;
+  }
+}
+
+/* v42: the collection view gets the same sort controls as the library root. */
+.collection-sort-row {
+  margin: 0 0 16px;
+}
+
+/* v43: responsive library toolbar polish.
+   Keep filters grouped on small screens while preserving a separated,
+   right-aligned direction control and utility actions. */
+.library-sort-row {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.library-sort-row .sort-direction-btn {
+  margin-left: auto;
+}
+
+.library-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.library-action-row .install-btn {
+  margin-left: auto;
+}
 
 @media (max-width: 620px) {
-  .library-action-row .library-action-group { max-width: 100%; }
+  .library-sort-row .sort-direction-btn {
+    margin-left: auto;
+  }
+
+  .library-action-row .library-action-group {
+    max-width: 100%;
+  }
+
+  .library-action-row .install-btn {
+    margin-left: auto;
+  }
 }
+
 @media (max-width: 430px) {
-  .library-sort-row { align-items: flex-start; }
-  .library-action-row { justify-content: flex-start; }
-}
+  .library-sort-row {
+    align-items: flex-start;
+  }
 
-/* Pageflip stages */
-#page-viewport { perspective: 1400px; }
-.lb-pageflip-stage {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 20;
-  transform-style: preserve-3d;
-}
-.lb-pageflip-under,
-.lb-pageflip-sheet {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  user-select: none;
-  -webkit-user-drag: none;
-  backface-visibility: hidden;
-}
-.lb-pageflip-sheet {
-  z-index: 2;
-  transform-origin: left center;
-}
-.lb-pageflip-stage.turn-next .lb-pageflip-sheet {
-  animation: lb-turn-next 650ms cubic-bezier(.22,.61,.36,1) forwards;
-}
-.lb-pageflip-stage.turn-prev .lb-pageflip-sheet {
-  transform-origin: right center;
-  animation: lb-turn-prev 650ms cubic-bezier(.22,.61,.36,1) forwards;
-}
-@keyframes lb-turn-next {
-  from { transform: rotateY(0deg); }
-  to   { transform: rotateY(-180deg); }
-}
-@keyframes lb-turn-prev {
-  from { transform: rotateY(0deg); }
-  to   { transform: rotateY(180deg); }
-}
+  .library-sort-row .sort-direction-btn {
+    margin-left: auto;
+  }
 
-#page-viewport.page-mode-stf-host {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  overflow: hidden !important;
-  z-index: 15 !important;
-  perspective: 1400px;
-}
-.page-mode-stf-host .stf__parent,
-.page-mode-stf-host .stf__block {
-  width: 100% !important;
-  height: 100% !important;
-}
-.page-mode-stf-host .longbox-flip-page {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background: #000;
-}
-.page-mode-stf-host .longbox-flip-page > img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-  user-select: none;
-  -webkit-user-drag: none;
-  pointer-events: none;
-}
+  .library-action-row {
+    justify-content: flex-start;
+  }
 
-#pageflip-book.pageflip-book {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  z-index: 50 !important;
-  display: none;
-  overflow: hidden;
-  pointer-events: auto !important;
-  background: transparent;
+  .library-action-row .install-btn {
+    margin-left: auto;
+  }
 }
-.page-mode-underlay {
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-.longbox-turn-book {
-  position: absolute;
-  overflow: hidden;
-  background: transparent;
-  transform: translateZ(0);
-}
-.longbox-turn-page {
-  position: relative;
-  overflow: hidden;
-  background: #000;
-}
-.longbox-turn-page img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  user-select: none;
-  -webkit-user-drag: none;
-  pointer-events: none;
-}
-.longbox-turn-book .turn-page { background: transparent; }
