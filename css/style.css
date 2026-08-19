@@ -1097,23 +1097,13 @@ button.reader-btn.mini-btn {
 .longbox-turn-book .turn-page { background: transparent; }
 
 
-/* v81 — legacy Turn.js host compatibility */
-#pageflip-book {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-width: 1px !important;
-  min-height: 1px !important;
-  display: block !important;
-  visibility: visible !important;
-  overflow: hidden !important;
-  z-index: 10 !important;
-}
-#pageflip-book .page {
-  overflow: hidden;
-}
-#pageflip-book img {
-  display: block;
-  max-width: none;
-}
+/* v81 — legacy Turn.js host compatibility — REMOVED (2026-08-18).
+   This block unconditionally forced #pageflip-book to display:block,
+   visibility:visible, and z-index:10 with !important on every property.
+   Because !important beats specificity regardless of selector, its
+   `display: block !important` overrode the v57 block's intended
+   `display: none` (not !important) on the more-specific
+   `#pageflip-book.pageflip-book` selector — so this invisible,
+   pointer-events:auto div sat full-screen above the reader chrome at all
+   times, silently swallowing every tap on the topbar/bottombar controls,
+   regardless of whether any page-flip mode was active. */
