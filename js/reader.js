@@ -17,6 +17,7 @@ const Reader = {
   chromeVisible: true,
   chromeTimer: null,
   pageFlipEngine: null,
+  pageModeEngine: null,
 
   currentPanels: [],       // detected panel rects for the visible page, fractional coords
   panelZoomEnabled: localStorage.getItem(PANEL_ZOOM_KEY) !== "0",
@@ -163,6 +164,48 @@ const Reader = {
   },
 
   async renderPaged() {
+    if (this.mode === "single" && window.LongboxPageMode) {
+      if (!this.pageModeEngine) {
+        this.pageModeEngine = new window.LongboxPageMode({
+          getIssue: () => this.comic,
+          getPageUrl: (i) => this.getPageUrl(i),
+          getIndex: () => this.index,
+          setIndex: (i) => { this.index = i; },
+          onPageChanged: (i) => {
+            this.index = i;
+            this.updateSliderLabel();
+            this.updateBookmarkFlag();
+            this.saveProgress();
+            this.loadPanelsForCurrentPage();
+          },
+          onState: () => {}
+        });
+      }
+
+      this.els.viewport.innerHTML = "";
+      this.els.viewport.classList.add("page-mode-stf-host");
+      this.els.loading.style.display = "flex";
+
+      const ok = await this.pageModeEngine.render(this.els.viewport);
+      this.els.loading.style.display = "none";
+
+      if (ok) return;
+
+      // If the experimental renderer fails, immediately fall back to v77's
+      // known-good page renderer instead of leaving the reader blank.
+      this.els.viewport.classList.remove("page-mode-stf-host");
+    }
+
+    if (this.pageModeEngine) {
+      await this.pageModeEngine.destroy();
+      this.pageModeEngine = null;
+    }
+
+    return this.renderPagedBaselineV77();
+  },
+
+  async renderPagedBaselineV77() {
+
     this.els.stage.classList.remove("mode-scroll");
     this.els.viewport.style.width = "";
     this.els.viewport.style.height = "";
@@ -587,6 +630,10 @@ const Reader = {
     if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
     const wasSpread = this.mode === "spread";
+    if (this.mode !== "single" && this.pageModeEngine) {
+      await this.pageModeEngine.destroy();
+      this.pageModeEngine = null;
+    }
     this.mode = mode;
     this.comic.readMode = mode;
     LongboxDB.updateComic(this.comic.id, { readMode: mode });
@@ -712,6 +759,10 @@ const Reader = {
 
   next() {
     this.showChrome();
+    if (this.mode === "single" && this.pageModeEngine) {
+      this.pageModeEngine.next();
+      return;
+    }
     if (this.mode === "single" && this.pageFlipEngine) {
       this.pageFlipEngine.turn("next");
       return;
@@ -721,6 +772,10 @@ const Reader = {
   },
   prev() {
     this.showChrome();
+    if (this.mode === "single" && this.pageModeEngine) {
+      this.pageModeEngine.prev();
+      return;
+    }
     if (this.mode === "single" && this.pageFlipEngine) {
       this.pageFlipEngine.turn("prev");
       return;
