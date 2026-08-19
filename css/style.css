@@ -1383,37 +1383,3 @@ body.page-mode-active #pageflip-book .longbox-turn-book {
   touch-action: manipulation !important;
 }
 
-/* v68 — temporary touch diagnostic; never captures input. */
-#touch-diagnostic {
-  position: fixed !important;
-  inset: 0 !important;
-  z-index: 200000 !important;
-  pointer-events: none !important;
-  display: none;
-  font-family: system-ui, sans-serif;
-}
-#touch-diagnostic.active { display: block !important; }
-#touch-diagnostic-badge {
-  position: absolute; left: 10px; top: 10px;
-  padding: 5px 8px; border-radius: 6px;
-  background: rgba(0,0,0,.8); color: #fff;
-  font: 700 11px/1 system-ui,sans-serif;
-}
-#touch-diagnostic-readout {
-  position: absolute; left: 10px; top: 34px;
-  max-width: calc(100vw - 20px);
-  padding: 7px 9px; border-radius: 6px;
-  background: rgba(0,0,0,.85); color: #fff;
-  font: 600 11px/1.35 monospace;
-  white-space: pre-wrap;
-}
-.touch-diag-dot {
-  position: fixed; width: 24px; height: 24px;
-  margin-left: -12px; margin-top: -12px;
-  border: 3px solid #fff; border-radius: 50%;
-  box-sizing: border-box;
-  opacity: .95;
-}
-.touch-diag-dot.green { background: rgba(0,180,70,.8); }
-.touch-diag-dot.blue { background: rgba(40,100,255,.8); }
-.touch-diag-dot.red { background: rgba(230,40,40,.8); }
