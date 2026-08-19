@@ -183,19 +183,38 @@ const Reader = {
         });
       }
 
-      this.els.viewport.innerHTML = "";
-      this.els.viewport.classList.add("page-mode-underlay");
+      // v81: give the legacy Turn.js implementation the exact kind of
+      // dedicated, measurable host it expects.
+      const host = document.getElementById("pageflip-book") || this.els.viewport;
+      host.innerHTML = "";
+      host.style.display = "block";
+      host.style.visibility = "visible";
+      host.style.position = "absolute";
+      host.style.inset = "0";
+      host.style.width = "100%";
+      host.style.height = "100%";
+      host.style.overflow = "hidden";
+
       this.els.loading.style.display = "flex";
 
-      const pageHost = this.els.pageFlipBook || this.els.viewport;
-      const ok = await this.pageModeEngine.render(pageHost);
+      // Let layout settle before the legacy renderer measures the host.
+      await new Promise(resolve => requestAnimationFrame(() =>
+        requestAnimationFrame(resolve)
+      ));
+
+      const ok = await this.pageModeEngine.render(host);
+
       this.els.loading.style.display = "none";
 
       if (ok) return;
 
-      // If the experimental renderer fails, immediately fall back to v77's
-      // known-good page renderer instead of leaving the reader blank.
-      this.els.viewport.classList.remove("page-mode-underlay");
+      host.innerHTML = "";
+      host.style.display = "";
+      host.style.position = "";
+      host.style.inset = "";
+      host.style.width = "";
+      host.style.height = "";
+      host.style.overflow = "";
     }
 
     if (this.pageModeEngine) {
@@ -203,7 +222,27 @@ const Reader = {
       this.pageModeEngine = null;
     }
 
-    return this.renderPagedBaselineV77();
+    // Non-Page modes continue through the normal reader renderer.
+    const indices = this.mode === "spread"
+      ? [this.index, this.index + 1].filter(i => i < this.comic.pageCount)
+      : [this.index];
+
+    this.els.viewport.innerHTML = "";
+    const urls = await Promise.all(indices.map(i => this.getPageUrl(i)));
+    const imgs = [];
+
+    for (const url of urls) {
+      if (!url) continue;
+      const img = document.createElement("img");
+      img.src = url;
+      img.draggable = false;
+      this.els.viewport.appendChild(img);
+      imgs.push(img);
+    }
+
+    this.prefetch();
+    this.loadPanelsForCurrentPage();
+    this._pageTurnDirection = null;
   },
 
   async renderPagedBaselineV77() {
