@@ -179,122 +179,6 @@ const Reader = {
     await this.open(target.id);
   },
 
-
-
-
-
-  initDirectModeDiagnostic() {
-    if (this.directModeDiagnosticInitialized) return;
-
-    const buttons = Array.from(document.querySelectorAll(
-      ".reader-topbar button, .reader-bottombar button, " +
-      "[data-mode], [data-reader-mode]"
-    ));
-
-    const modeFromButton = (btn) => {
-      const raw = btn.dataset.mode || btn.dataset.readerMode ||
-        btn.getAttribute("aria-label") || btn.textContent || "";
-      const s = raw.trim().toLowerCase();
-      if (s.includes("manga")) return "manga";
-      if (s.includes("spread")) return "spread";
-      if (s.includes("scroll")) return "scroll";
-      if (s.includes("webcomic")) return "webcomic";
-      if (s.includes("page")) return "single";
-      return null;
-    };
-
-    const direct = (mode) => {
-      if (!mode) return;
-      console.info("[PageMode diagnostic] direct mode switch:", mode);
-
-      // Use the Reader's existing public mode-switch path if present.
-      if (typeof this.setMode === "function") {
-        this.setMode(mode);
-        return;
-      }
-      if (typeof this.switchMode === "function") {
-        this.switchMode(mode);
-        return;
-      }
-      if (typeof this.renderMode === "function") {
-        this.renderMode(mode);
-        return;
-      }
-
-      // Last-resort: dispatch the same semantic event the existing controls use.
-      document.dispatchEvent(new CustomEvent("longbox:mode-request", {
-        detail: { mode }
-      }));
-    };
-
-    buttons.forEach(btn => {
-      const mode = modeFromButton(btn);
-      if (!mode) return;
-
-      btn.dataset.directModeDiagnostic = mode;
-      btn.addEventListener("click", (e) => {
-        if (this.mode !== "single") return;
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        direct(mode);
-      }, true);
-    });
-
-    this.directModeDiagnosticInitialized = true;
-  },
-
-  initTouchDiagnostic() {
-    if (this.touchDiagnosticInitialized) return;
-    const overlay = document.getElementById("touch-diagnostic");
-    const readout = document.getElementById("touch-diagnostic-readout");
-    if (!overlay || !readout) return;
-
-    const classify = (el) => {
-      if (!el) return { kind: "red", label: "NONE" };
-      if (el.closest?.("#reader-controls-portal, .reader-topbar, .reader-bottombar, button, input, select, a, [role='button']"))
-        return { kind: "green", label: "CONTROL" };
-      if (el.closest?.("#pageflip-book, .longbox-turn-book, .turn-page, .page"))
-        return { kind: "blue", label: "FLIPBOOK / TURN.JS" };
-      return { kind: "red", label: el.tagName + (el.id ? "#" + el.id : "") };
-    };
-
-    const report = (e) => {
-      const x = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
-      const y = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
-      const actual = document.elementFromPoint(x, y);
-      const cls = classify(actual);
-      const target = e.target instanceof Element ? e.target : null;
-      const targetCls = classify(target);
-
-      document.querySelectorAll(".touch-diag-dot").forEach(n => n.remove());
-      const dot = document.createElement("div");
-      dot.className = "touch-diag-dot " + cls.kind;
-      dot.style.left = x + "px";
-      dot.style.top = y + "px";
-      overlay.appendChild(dot);
-
-      readout.textContent =
-        `POINT: ${Math.round(x)}, ${Math.round(y)}\n` +
-        `elementFromPoint: ${actual?.tagName || "NONE"}${actual?.id ? "#" + actual.id : ""}${actual?.className && typeof actual.className === "string" ? "." + actual.className.split(/\s+/).slice(0,2).join(".") : ""}\n` +
-        `HIT CLASS: ${cls.label}\n` +
-        `EVENT TARGET: ${target?.tagName || "NONE"}${target?.id ? "#" + target.id : ""}\n` +
-        `PAGE MODE: ${this.mode === "single" ? "YES" : "NO"}`;
-    };
-
-    document.addEventListener("pointerdown", report, true);
-    document.addEventListener("touchstart", report, true);
-    this.touchDiagnostic = { overlay };
-    this.touchDiagnosticInitialized = true;
-  },
-
-  setTouchDiagnosticActive(active) {
-    if (!this.touchDiagnosticInitialized) this.initTouchDiagnostic();
-    const d = this.touchDiagnostic;
-    if (!d) return;
-    d.overlay.classList.toggle("active", !!active);
-    d.overlay.setAttribute("aria-hidden", active ? "false" : "true");
-  },
-
   initPageModeControlGuard() {
     if (this.pageModeControlGuardInitialized) return;
     const isPageMode = () => this.mode === "single" && !!this.pageModeEngine;
@@ -322,6 +206,51 @@ const Reader = {
     document.addEventListener("touchend", stopTouchGesture, true);
 
     this.pageModeControlGuardInitialized = true;
+  },
+
+
+  initPageModeDirectControls() {
+    if (this.pageModeDirectControlsInitialized) return;
+
+    const modeFromButton = (btn) => {
+      const raw = btn.dataset.mode || btn.dataset.readerMode ||
+        btn.getAttribute("aria-label") || btn.textContent || "";
+      const s = raw.trim().toLowerCase();
+      if (s.includes("manga")) return "manga";
+      if (s.includes("spread")) return "spread";
+      if (s.includes("scroll")) return "scroll";
+      if (s.includes("webcomic")) return "webcomic";
+      if (s === "page" || s.includes("page mode")) return "single";
+      return null;
+    };
+
+    const direct = (mode) => {
+      if (!mode) return;
+      if (typeof this.setMode === "function") return this.setMode(mode);
+      if (typeof this.switchMode === "function") return this.switchMode(mode);
+      if (typeof this.renderMode === "function") return this.renderMode(mode);
+      document.dispatchEvent(new CustomEvent("longbox:mode-request", {
+        detail: { mode }
+      }));
+    };
+
+    const buttons = Array.from(document.querySelectorAll(
+      ".reader-topbar button, .reader-bottombar button, [data-mode], [data-reader-mode]"
+    ));
+
+    buttons.forEach(btn => {
+      const mode = modeFromButton(btn);
+      if (!mode) return;
+
+      btn.addEventListener("click", (e) => {
+        if (this.mode !== "single") return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        direct(mode);
+      }, true);
+    });
+
+    this.pageModeDirectControlsInitialized = true;
   },
 
   initControlsPortal() {
@@ -429,9 +358,7 @@ const Reader = {
     if (this.mode === "single") {
       if (!this.pageModeEngine) {
         this.initControlsPortal();
-      this.initTouchDiagnostic();
-      this.initDirectModeDiagnostic();
-      this.setTouchDiagnosticActive(true);
+      this.initPageModeDirectControls();
       this.setControlsPortalActive(true);
       this.pageModeEngine = new window.LongboxPageMode({
           getIssue: () => this.comic,
