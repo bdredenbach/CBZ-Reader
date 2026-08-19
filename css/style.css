@@ -1024,3 +1024,35 @@ button.reader-btn.mini-btn {
   from { transform: rotateY(0deg); }
   to   { transform: rotateY(180deg); }
 }
+
+
+/* v78 — StPageFlip experiment layered onto the clean v77 baseline */
+#page-viewport.page-mode-stf-host {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+  z-index: 15 !important;
+  perspective: 1400px;
+}
+.page-mode-stf-host .stf__parent,
+.page-mode-stf-host .stf__block {
+  width: 100% !important;
+  height: 100% !important;
+}
+.page-mode-stf-host .longbox-flip-page {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+.page-mode-stf-host .longbox-flip-page > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
