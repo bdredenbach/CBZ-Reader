@@ -370,7 +370,6 @@ const Reader = {
         this.initControlsPortal();
       this.initTouchDiagnostic();
       this.setTouchDiagnosticActive(true);
-      this.initPageModeControlGuard();
       this.setControlsPortalActive(true);
       this.pageModeEngine = new window.LongboxPageMode({
           getIssue: () => this.comic,
