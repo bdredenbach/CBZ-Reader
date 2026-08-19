@@ -16,8 +16,7 @@ const Reader = {
   ty: 0,
   chromeVisible: true,
   chromeTimer: null,
-  _pageTurnDirection: null,
-  pageModeEngine: null,
+  pageFlipEngine: null,
 
   currentPanels: [],       // detected panel rects for the visible page, fractional coords
   panelZoomEnabled: localStorage.getItem(PANEL_ZOOM_KEY) !== "0",
@@ -38,10 +37,6 @@ const Reader = {
     this.els.viewport = document.getElementById("page-viewport");
     this.els.chrome = document.getElementById("reader-chrome");
     this.els.title = document.getElementById("reader-title");
-    this.els.seriesNav = document.getElementById("series-nav");
-    this.els.seriesPrev = document.getElementById("series-prev");
-    this.els.seriesNext = document.getElementById("series-next");
-    this.els.seriesNavLabel = document.getElementById("series-nav-label");
     this.els.slider = document.getElementById("page-slider");
     this.els.sliderLabel = document.getElementById("page-slider-label");
     this.els.loading = document.getElementById("reader-loading");
@@ -49,11 +44,10 @@ const Reader = {
     this.els.bubbleToggle = document.getElementById("bubble-zoom-toggle");
     this.els.debugPanel = document.getElementById("debug-panel");
     this.els.helpDrawer = document.getElementById("help-drawer");
+    this.pageFlipEngine = new LongboxPageFlip(this);
 
     document.getElementById("reader-back").addEventListener("click", () => this.close());
     document.getElementById("reader-bookmark").addEventListener("click", () => this.toggleBookmark());
-    this.els.seriesPrev.addEventListener("click", () => this.openAdjacentIssue(-1));
-    this.els.seriesNext.addEventListener("click", () => this.openAdjacentIssue(1));
     document.getElementById("reader-help").addEventListener("click", () => this.openHelpDrawer());
     document.getElementById("help-drawer-close").addEventListener("click", () => this.closeHelpDrawer());
     this.els.helpDrawer.addEventListener("click", (e) => {
@@ -113,71 +107,6 @@ const Reader = {
     screen.orientation?.addEventListener?.("change", settleContinuous);
   },
 
-  async getSeriesIssues() {
-    if (!this.comic) return [];
-    const comics = await LongboxDB.getAllComics();
-    const key = this.comic.seriesKey;
-    const title = this.comic.seriesTitle;
-    if (!key && !title) return [];
-
-    return comics
-      .filter((c) => c && c.id != null)
-      .filter((c) => {
-        if (key && c.seriesKey) return c.seriesKey === key;
-        return title && c.seriesTitle &&
-          c.seriesTitle.trim().toLowerCase() === title.trim().toLowerCase();
-      })
-      .sort((a, b) => {
-        const ai = a.issueNumber == null ? 999999 : Number(a.issueNumber);
-        const bi = b.issueNumber == null ? 999999 : Number(b.issueNumber);
-        return ai - bi || String(a.title || "").localeCompare(String(b.title || ""));
-      });
-  },
-
-  async updateSeriesNavigation() {
-    if (!this.comic || (!this.comic.seriesKey && !this.comic.seriesTitle)) {
-      this.els.seriesNav.style.display = "none";
-      return;
-    }
-    const issues = await this.getSeriesIssues();
-    const index = issues.findIndex((c) => c.id === this.comic.id);
-    if (index < 0 || issues.length < 2) {
-      this.els.seriesNav.style.display = "none";
-      return;
-    }
-
-    const prev = issues[index - 1] || null;
-    const next = issues[index + 1] || null;
-    this.els.seriesNav.style.display = "flex";
-    this.els.seriesPrev.disabled = !prev;
-    this.els.seriesNext.disabled = !next;
-
-    const issueText = this.comic.issueNumber != null
-      ? `#${this.comic.issueNumber}`
-      : `${index + 1}/${issues.length}`;
-    this.els.seriesNavLabel.textContent = issueText;
-
-    this.els.seriesPrev.title = prev
-      ? `Previous issue${prev.issueNumber != null ? ` (#${prev.issueNumber})` : ""}`
-      : "No previous issue";
-    this.els.seriesNext.title = next
-      ? `Next issue${next.issueNumber != null ? ` (#${next.issueNumber})` : ""}`
-      : "No next issue";
-    this.els.seriesPrev.setAttribute("aria-label", this.els.seriesPrev.title);
-    this.els.seriesNext.setAttribute("aria-label", this.els.seriesNext.title);
-  },
-
-  async openAdjacentIssue(direction) {
-    const issues = await this.getSeriesIssues();
-    const index = issues.findIndex((c) => c.id === this.comic?.id);
-    if (index < 0) return;
-    const target = issues[index + direction];
-    if (!target) return;
-    this.saveProgress();
-    this.revokeAll();
-    await this.open(target.id);
-  },
-
   async open(comicId) {
     this.comic = await LongboxDB.getComic(comicId);
     if (!this.comic) return;
@@ -190,7 +119,6 @@ const Reader = {
 
     this.els.title.textContent = this.comic.title;
     this.els.slider.max = this.comic.pageCount - 1;
-    await this.updateSeriesNavigation();
     this.applyTheme();
     this.applyModeClass();
     this.updateModePills();
@@ -238,51 +166,6 @@ const Reader = {
     this.els.stage.classList.remove("mode-scroll");
     this.els.viewport.style.width = "";
     this.els.viewport.style.height = "";
-
-    if (this.mode === "single") {
-      if (!this.pageModeEngine) {
-        this.pageModeEngine = new window.LongboxPageMode({
-          getIssue: () => this.comic,
-          getPageUrl: (i) => this.getPageUrl(i),
-          getIndex: () => this.index,
-          setIndex: (i) => { this.index = i; },
-          onPageChanged: (i) => {
-            this.index = i;
-            this.updateSliderLabel();
-            this.updateBookmarkFlag();
-            this.saveProgress();
-            this.showChrome();
-            this.loadPanelsForCurrentPage();
-          },
-          onState: (state) => this.debugLog(`PageMode state=${state}`)
-        });
-      }
-
-      this.els.viewport.innerHTML = "";
-      this.els.viewport.classList.add("page-mode-isolated-host");
-      this.els.loading.style.display = "flex";
-
-      const ok = await this.pageModeEngine.render(this.els.viewport);
-      if (ok) {
-        this.els.loading.style.display = "none";
-        return;
-      }
-
-      this.els.loading.style.display = "none";
-      this.els.viewport.classList.remove("page-mode-isolated-host");
-    } else {
-      if (this.pageModeEngine) await this.pageModeEngine.destroy();
-      this.els.viewport.classList.remove("page-mode-isolated-host");
-    }
-
-    // Baseline renderer remains intact outside Page Mode.
-    const oldPage = this.mode === "single"
-      ? this.els.viewport.querySelector("img")
-      : null;
-    const oldPageSrc = oldPage ? oldPage.src : null;
-    const oldTurn = this.els.viewport.querySelector(".page-turn-overlay");
-    if (oldTurn) oldTurn.remove();
-
     this.els.viewport.innerHTML = "";
     this.els.loading.style.display = "flex";
 
@@ -292,8 +175,7 @@ const Reader = {
 
     const urls = await Promise.all(indices.map((i) => this.getPageUrl(i)));
     this.els.loading.style.display = "none";
-    this.els.viewport.classList.remove("page-mode-isolated-host");
-
+    this.els.viewport.innerHTML = "";
     const renderedImages = [];
     urls.forEach((url) => {
       if (!url) return;
@@ -304,7 +186,7 @@ const Reader = {
       renderedImages.push(img);
     });
 
-    if (this.mode === "spread" || (this.mode === "single" && this._pageTurnDirection)) {
+    if (this.mode === "spread") {
       await Promise.all(renderedImages.map(img =>
         img.decode
           ? img.decode().catch(() => {})
@@ -313,40 +195,8 @@ const Reader = {
               : new Promise(resolve => img.addEventListener("load", resolve, { once: true })))
       ));
     }
-
-    if (this.mode === "single" && this._pageTurnDirection && oldPageSrc) {
-      const incoming = renderedImages[0];
-      if (incoming) {
-        const overlay = document.createElement("div");
-        overlay.className = "page-turn-overlay";
-        overlay.setAttribute("aria-hidden", "true");
-
-        const sheet = document.createElement("img");
-        sheet.className = "page-turn-sheet";
-        sheet.src = oldPageSrc;
-        sheet.draggable = false;
-
-        overlay.appendChild(sheet);
-        this.els.viewport.appendChild(overlay);
-
-        overlay.style.left = `${incoming.offsetLeft}px`;
-        overlay.style.top = `${incoming.offsetTop}px`;
-        overlay.style.width = `${incoming.offsetWidth}px`;
-        overlay.style.height = `${incoming.offsetHeight}px`;
-
-        overlay.classList.add(
-          this._pageTurnDirection === "next" ? "page-turn-next" : "page-turn-prev"
-        );
-
-        const remove = () => overlay.remove();
-        overlay.addEventListener("animationend", remove, { once: true });
-        setTimeout(remove, 800);
-      }
-    }
-
     this.prefetch();
     this.loadPanelsForCurrentPage();
-    this._pageTurnDirection = null;
   },
 
   async stabilizeContinuousLayout() {
@@ -691,7 +541,6 @@ const Reader = {
 
   applyModeClass() {
     this.els.viewport.className = "page-viewport";
-    this.els.stage.classList.toggle("mode-page", this.mode === "single");
     this.els.stage.classList.toggle("mode-spread", this.mode === "spread");
     this.els.stage.classList.toggle("mode-scroll", this.mode === "scroll" || this.mode === "webcomic");
     this.els.stage.classList.toggle("mode-manga", this.mode === "manga");
@@ -738,7 +587,6 @@ const Reader = {
     if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
     const wasSpread = this.mode === "spread";
-    if (mode !== "single" && this.pageModeEngine) this.pageModeEngine.destroy();
     this.mode = mode;
     this.comic.readMode = mode;
     LongboxDB.updateComic(this.comic.id, { readMode: mode });
@@ -850,14 +698,6 @@ const Reader = {
     const step = (this.mode === "spread" || this.mode === "manga") ? 2 : 1;
     i = Math.max(0, Math.min(this.comic.pageCount - 1, i));
     if (i === this.index && !opts.fromSlider) return;
-    const previousIndex = this.index;
-    if (this.mode === "single" && !opts.fromSlider && i !== previousIndex) {
-      this._pageTurnDirection = i > previousIndex ? "next" : "prev";
-      this.debugLog(`page flip: ${this._pageTurnDirection} (${previousIndex} -> ${i})`);
-    } else {
-      this._pageTurnDirection = null;
-    }
-
     this.index = i;
     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
       const target = this.els.stage.querySelector(`.scroll-page[data-index="${i}"]`);
@@ -872,8 +712,8 @@ const Reader = {
 
   next() {
     this.showChrome();
-    if (this.mode === "single" && this.pageModeEngine) {
-      this.pageModeEngine.next();
+    if (this.mode === "single" && this.pageFlipEngine) {
+      this.pageFlipEngine.turn("next");
       return;
     }
     const step = this.mode === "spread" ? 2 : 1;
@@ -881,8 +721,8 @@ const Reader = {
   },
   prev() {
     this.showChrome();
-    if (this.mode === "single" && this.pageModeEngine) {
-      this.pageModeEngine.prev();
+    if (this.mode === "single" && this.pageFlipEngine) {
+      this.pageFlipEngine.turn("prev");
       return;
     }
     const step = this.mode === "spread" ? 2 : 1;
@@ -1344,7 +1184,7 @@ const Reader = {
           if (panStart) {
             const dx = endTouch.clientX - panStart.x;
             const dy = endTouch.clientY - panStart.y;
-            if (!this.focusMode && !this.pageModeEngine && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+            if (!this.focusMode && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
               this.debugLog(`-> swipe page-turn dx=${dx.toFixed(0)}`);
               if (dx < 0) this.next(); else this.prev();
               panStart = null;
