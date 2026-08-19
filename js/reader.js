@@ -1,4 +1,4 @@
-﻿// reader.js — the reading experience: paging, zoom/pan, modes, themes
+// reader.js — the reading experience: paging, zoom/pan, modes, themes
 
 const PANEL_ZOOM_KEY = "longbox_panel_zoom_enabled";
 const BUBBLE_ZOOM_KEY = "longbox_bubble_zoom_enabled";
@@ -43,6 +43,7 @@ const Reader = {
    this.els.bubbleToggle = document.getElementById("bubble-zoom-toggle");
    this.els.debugPanel = document.getElementById("debug-panel");
    this.els.helpDrawer = document.getElementById("help-drawer");
+   this.nativePageTurn = new LongboxNativePageTurn(this);
 
    document.getElementById("reader-back").addEventListener("click", () => this.close());
    document.getElementById("reader-bookmark").addEventListener("click", () => this.toggleBookmark());
@@ -667,12 +668,24 @@ const Reader = {
 
  next() {
    this.showChrome();
+   if (this.mode === "single" && this.scale <= 1.02 && this.nativePageTurn) {
+     this.nativePageTurn.turn("next").then(handled => {
+       if (!handled && !this.nativePageTurn.running) this.goTo(this.index + 1);
+     });
+     return;
+   }
    const step = this.mode === "spread" ? 2 : 1;
    this.goTo(this.index + step);
  },
 
  prev() {
    this.showChrome();
+   if (this.mode === "single" && this.scale <= 1.02 && this.nativePageTurn) {
+     this.nativePageTurn.turn("prev").then(handled => {
+       if (!handled && !this.nativePageTurn.running) this.goTo(this.index - 1);
+     });
+     return;
+   }
    const step = this.mode === "spread" ? 2 : 1;
    this.goTo(this.index - step);
  },
