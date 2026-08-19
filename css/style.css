@@ -1095,3 +1095,25 @@ button.reader-btn.mini-btn {
   pointer-events: none;
 }
 .longbox-turn-book .turn-page { background: transparent; }
+
+
+/* v81 — legacy Turn.js host compatibility */
+#pageflip-book {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 1px !important;
+  min-height: 1px !important;
+  display: block !important;
+  visibility: visible !important;
+  overflow: hidden !important;
+  z-index: 10 !important;
+}
+#pageflip-book .page {
+  overflow: hidden;
+}
+#pageflip-book img {
+  display: block;
+  max-width: none;
+}
