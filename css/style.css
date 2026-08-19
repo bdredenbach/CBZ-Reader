@@ -1204,35 +1204,33 @@ button.reader-btn.mini-btn {
 }
 
 
-/* v57 — isolated Turn.js Page Mode test. The normal reader remains intact. */
-#pageflip-book.pageflip-book {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  z-index: 4 !important;
-  display: none;
-  overflow: hidden;
-  pointer-events: auto !important;
-  background: transparent;
-}
+/* v74 — isolated Page Mode / Turn.js restart test */
 .page-mode-underlay {
   visibility: hidden !important;
   pointer-events: none !important;
 }
+
+#pageflip-book.pageflip-book {
+  position: absolute;
+  overflow: hidden;
+  background: transparent;
+  z-index: 4;
+  pointer-events: auto;
+}
+
 .longbox-turn-book {
   position: absolute;
   overflow: hidden;
   background: transparent;
   transform: translateZ(0);
-  max-width: 100%;
-  max-height: 100%;
 }
+
 .longbox-turn-page {
   position: relative;
   overflow: hidden;
   background: #000;
 }
+
 .longbox-turn-page img {
   display: block;
   width: 100%;
@@ -1242,113 +1240,13 @@ button.reader-btn.mini-btn {
   -webkit-user-drag: none;
   pointer-events: none;
 }
-.longbox-turn-book .turn-page { background: transparent; }
 
-
-/* v59 — preserve the comic's real page shape inside the Page Mode safe area. */
-.longbox-turn-book {
-  transform: translateZ(0);
-  max-width: none;
-  max-height: none;
-}
-.longbox-turn-page {
-  width: 100%;
-  height: 100%;
+.longbox-turn-book .turn-page {
+  background: transparent;
 }
 
-
-/* v63 — keep reader controls on the top interaction layer. */
-.reader-chrome {
-  z-index: 1000 !important;
-  pointer-events: none !important;
-}
-.reader-chrome .reader-topbar,
-.reader-chrome .reader-bottombar {
-  position: absolute;
-  z-index: 1001 !important;
-  pointer-events: auto !important;
-}
-
-/* The flipbook container itself should not blanket-capture the screen.
-   Its actual book remains interactive for page turning. */
-#pageflip-book.pageflip-book {
-  z-index: 10 !important;
-  pointer-events: none !important;
-}
-#pageflip-book.pageflip-book .longbox-turn-book,
-#pageflip-book.pageflip-book .longbox-turn-book * {
-  pointer-events: auto !important;
-}
-
-
-/* v64 — explicit interaction-layer architecture for Page Mode. */
-.reader-stage {
-  position: relative;
-}
-
-.reader-tap-zones {
-  z-index: 2 !important;
-  pointer-events: auto !important;
-}
-
-#pageflip-book.pageflip-book {
-  z-index: 10 !important;
-  pointer-events: none !important;
-  touch-action: pan-y !important;
-}
-
-#pageflip-book.pageflip-book .longbox-turn-book {
-  pointer-events: auto !important;
-  touch-action: pan-y !important;
-}
-
-.reader-chrome {
-  position: absolute !important;
-  inset: 0 !important;
-  z-index: 1000 !important;
-  pointer-events: none !important;
-}
-
-.reader-chrome .reader-topbar,
-.reader-chrome .reader-bottombar {
-  position: absolute !important;
-  z-index: 1001 !important;
-  pointer-events: auto !important;
-}
-
-/* Keep individual controls explicitly interactive even if inherited styles
-   change elsewhere in the reader. */
-.reader-chrome button,
-.reader-chrome input,
-.reader-chrome select,
-.reader-chrome a,
-.reader-chrome [role="button"] {
-  pointer-events: auto !important;
-  touch-action: manipulation !important;
-}
-
-
-/* v65 — Page Mode owns horizontal gesture handling; normal tap zones do not
-   participate while the experimental flipbook is active. */
 .reader-stage.page-mode-active .reader-tap-zones,
 body.page-mode-active .reader-tap-zones {
   display: none !important;
   pointer-events: none !important;
 }
-
-.reader-stage.page-mode-active,
-body.page-mode-active .reader-stage {
-  touch-action: pan-x !important;
-}
-
-.reader-stage.page-mode-active #pageflip-book,
-body.page-mode-active #pageflip-book {
-  touch-action: pan-x !important;
-}
-
-.reader-stage.page-mode-active #pageflip-book .longbox-turn-book,
-body.page-mode-active #pageflip-book .longbox-turn-book {
-  touch-action: pan-x !important;
-}
-
-
