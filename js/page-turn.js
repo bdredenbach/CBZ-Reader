@@ -1,59 +1,24 @@
-/* Longbox Native Page Turn — v59.4 Corner Grab Curl
- * First-party corner-driven page geometry experiment.
+/* Longbox Native Page Turn — v59.5 Moving Fold Line
+ * First-party moving-fold experiment.
  * No external libraries.
  */
 window.LongboxNativePageTurn = class {
   constructor(reader) {
     this.reader = reader;
     this.running = false;
-    this.duration = 920;
-    this.samples = 120;
+    this.duration = 940;
+    this.samples = 140;
   }
 
   clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-  // Simulated finger/corner path. The page is "grabbed" at the outer corner
-  // and pulled diagonally toward the spine rather than simply rotated.
-  cornerAt(progress, forward, width, height) {
-    const t = this.clamp(progress, 0, 1);
+  // The simulated hand grabs the outer top corner, travels diagonally,
+  // and pulls the fold boundary across the sheet.
+  cornerAt(t, forward, w, h) {
     const e = t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2;
-
-    if (forward) {
-      // Grab top-right and pull left/down, then settle toward the spine.
-      return {
-        x: width * (1 - .92 * e),
-        y: height * (.06 + .56 * Math.sin(Math.PI * e))
-      };
-    }
-
-    // Mirror: grab top-left and pull right/down.
-    return {
-      x: width * (.92 * e),
-      y: height * (.06 + .56 * Math.sin(Math.PI * e))
-    };
-  }
-
-  // Fold line from the active corner. This is a simplified reconstruction of
-  // the corner/fold geometry: the fold normal follows the corner's movement,
-  // and its distance from the page center controls the local bend.
-  foldFromCorner(corner, width, height, forward) {
-    const cx = width / 2;
-    const cy = height / 2;
-    const dx = corner.x - cx;
-    const dy = corner.y - cy;
-    const distance = Math.hypot(dx, dy) || 1;
-
-    const nx = dx / distance;
-    const ny = dy / distance;
-
-    const angle = Math.atan2(ny, nx);
-    const reach = this.clamp(distance / Math.hypot(width, height), 0, 1);
-
-    return {
-      nx, ny, angle,
-      bend: (1 - reach) * Math.PI * .82 + Math.PI * .08,
-      depth: 28 + 78 * Math.sin(Math.PI * reach)
-    };
+    return forward
+      ? { x: w * (1 - .94*e), y: h * (.06 + .52*Math.sin(Math.PI*e)) }
+      : { x: w * (.94*e), y: h * (.06 + .52*Math.sin(Math.PI*e)) };
   }
 
   async turn(direction) {
@@ -77,14 +42,13 @@ window.LongboxNativePageTurn = class {
     this.running = true;
     r.showChrome();
 
-    const viewport = r.els.viewport;
     const layer = document.createElement("div");
-    layer.className = `native-corner-turn ${direction}`;
-    layer.style.setProperty("--turn-duration", `${this.duration}ms`);
+    layer.className = `native-moving-fold ${direction}`;
     layer.style.setProperty("--n", this.samples);
+    layer.style.setProperty("--turn-duration", `${this.duration}ms`);
 
     const under = document.createElement("img");
-    under.className = "native-corner-under";
+    under.className = "native-moving-fold-under";
     under.src = newUrl;
     under.draggable = false;
     under.alt = "";
@@ -92,7 +56,7 @@ window.LongboxNativePageTurn = class {
 
     for (let i = 0; i < this.samples; i++) {
       const piece = document.createElement("div");
-      piece.className = "native-corner-piece";
+      piece.className = "native-moving-fold-piece";
       piece.style.setProperty("--i", i);
       piece.style.setProperty("--n", this.samples);
 
@@ -104,12 +68,12 @@ window.LongboxNativePageTurn = class {
       layer.appendChild(piece);
     }
 
-    viewport.appendChild(layer);
+    r.els.viewport.appendChild(layer);
     current.style.visibility = "hidden";
     layer.getBoundingClientRect();
-    await new Promise(resolve => requestAnimationFrame(resolve));
+    await new Promise(requestAnimationFrame);
 
-    const pieces = [...layer.querySelectorAll(".native-corner-piece")];
+    const pieces = [...layer.querySelectorAll(".native-moving-fold-piece")];
     const start = performance.now();
     let ended = false;
 
@@ -122,58 +86,73 @@ window.LongboxNativePageTurn = class {
       r.updateSliderLabel();
       r.updateBookmarkFlag();
       r.saveProgress();
-      try {
-        await r.render();
-      } finally {
-        this.running = false;
-      }
+      try { await r.render(); }
+      finally { this.running = false; }
     };
 
     const frame = now => {
       if (ended) return;
 
       const raw = Math.min(1, (now - start) / this.duration);
-      const progress = raw < .5
-        ? 4 * raw * raw * raw
-        : 1 - Math.pow(-2 * raw + 2, 3) / 2;
+      const t = raw < .5
+        ? 4*raw*raw*raw
+        : 1 - Math.pow(-2*raw + 2, 3)/2;
 
-      const corner = this.cornerAt(progress, direction === "next", rect.width, rect.height);
-      const fold = this.foldFromCorner(corner, rect.width, rect.height, direction === "next");
+      const corner = this.cornerAt(t, direction === "next", rect.width, rect.height);
 
-      layer.style.setProperty("--corner-x", `${corner.x}px`);
-      layer.style.setProperty("--corner-y", `${corner.y}px`);
-      layer.style.setProperty("--fold-angle", `${fold.angle}rad`);
+      // Fold boundary travels from the grabbed edge toward the spine.
+      const foldX = direction === "next"
+        ? rect.width * (1 - .96*t)
+        : rect.width * (.96*t);
+
+      // The corner's vertical movement tilts the fold line.
+      const slope = (corner.y - rect.height*.5) / Math.max(1, rect.width*.48);
+      const foldY = rect.height*.5 + slope * (foldX - rect.width*.5);
+
+      layer.style.setProperty("--fold-x", `${foldX}px`);
+      layer.style.setProperty("--fold-y", `${foldY}px`);
 
       pieces.forEach((piece, i) => {
-        const u = i / (pieces.length - 1);
+        const u = i/(pieces.length-1);
+        const x = u * rect.width;
 
-        // The active corner influences the nearby portion most strongly.
-        // The influence then rolls smoothly across the sheet.
-        const target = direction === "next" ? 1 - progress : progress;
-        const influence = Math.exp(-Math.pow((u - target) / .30, 2));
+        // Signed distance from this slice to the moving fold line.
+        const lineY = foldY + slope*(x-foldX);
+        const signed = direction === "next"
+          ? x - foldX
+          : foldX - x;
 
-        // Corner grab creates both horizontal rotation and a slight vertical
-        // tilt, so the page can curl down/up as it travels.
-        const yaw = (direction === "next" ? -1 : 1) *
-          (8 + 142 * influence + 22 * Math.sin(Math.PI * progress) * Math.sin(Math.PI * u));
+        // Smooth transition zone around the fold. This is the key difference
+        // from v59.4: the page is mostly flat until the fold reaches it.
+        const width = rect.width * .16;
+        const influence = this.clamp((signed + width)/width, 0, 1);
 
-        const pitch = (corner.y / rect.height - .5) *
-          (direction === "next" ? -1 : 1) *
-          (12 + 26 * influence);
+        // Traveling curl: the fold itself gets the strongest rotation/depth.
+        const foldBand = Math.exp(-Math.pow(signed/(rect.width*.12), 2));
+        const turnAngle = (direction === "next" ? -1 : 1) *
+          (12 + 168*influence*influence);
 
-        const depth = fold.depth * Math.sin(Math.PI * u) *
-          (0.35 + .65 * influence);
+        const verticalBend =
+          (lineY - rect.height*.5) * .22 * foldBand;
 
-        const vertical = (corner.y - rect.height * .5) *
-          influence * .18;
+        const depth =
+          (38 + 82*foldBand) *
+          Math.sin(Math.PI*t) *
+          (0.25 + .75*foldBand);
 
-        const shade = .04 + .34 * influence * Math.sin(Math.PI * progress);
+        const pitch =
+          slope * 20 * foldBand;
 
-        piece.style.setProperty("--yaw", `${yaw}deg`);
-        piece.style.setProperty("--pitch", `${pitch}deg`);
+        const shade =
+          .035 +
+          .30*foldBand*Math.sin(Math.PI*t);
+
+        piece.style.setProperty("--angle", `${turnAngle}deg`);
         piece.style.setProperty("--depth", `${depth}px`);
-        piece.style.setProperty("--vertical", `${vertical}px`);
+        piece.style.setProperty("--pitch", `${pitch}deg`);
+        piece.style.setProperty("--lift", `${verticalBend}px`);
         piece.style.setProperty("--shade", shade.toFixed(3));
+        piece.style.setProperty("--fold-band", foldBand.toFixed(3));
       });
 
       if (raw < 1) requestAnimationFrame(frame);
