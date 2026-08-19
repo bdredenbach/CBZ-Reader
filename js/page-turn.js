@@ -1,46 +1,59 @@
-/* Longbox Native Page Turn — v59.3 Geometry Curl
- * First-party renderer using selective page-fold geometry concepts.
- * No StPageFlip/Turn.js dependency is included.
+/* Longbox Native Page Turn — v59.4 Corner Grab Curl
+ * First-party corner-driven page geometry experiment.
+ * No external libraries.
  */
 window.LongboxNativePageTurn = class {
   constructor(reader) {
     this.reader = reader;
     this.running = false;
-    this.duration = 900;
+    this.duration = 920;
     this.samples = 120;
   }
 
-  static dist(a, b) {
-    return Math.hypot(b.x - a.x, b.y - a.y);
-  }
+  clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-  static rotatedPoint(p, origin, angle) {
+  // Simulated finger/corner path. The page is "grabbed" at the outer corner
+  // and pulled diagonally toward the spine rather than simply rotated.
+  cornerAt(progress, forward, width, height) {
+    const t = this.clamp(progress, 0, 1);
+    const e = t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2)/2;
+
+    if (forward) {
+      // Grab top-right and pull left/down, then settle toward the spine.
+      return {
+        x: width * (1 - .92 * e),
+        y: height * (.06 + .56 * Math.sin(Math.PI * e))
+      };
+    }
+
+    // Mirror: grab top-left and pull right/down.
     return {
-      x: p.x * Math.cos(angle) + p.y * Math.sin(angle) + origin.x,
-      y: p.y * Math.cos(angle) - p.x * Math.sin(angle) + origin.y
+      x: width * (.92 * e),
+      y: height * (.06 + .56 * Math.sin(Math.PI * e))
     };
   }
 
-  // Same geometric relationship used by the reference implementation:
-  // page position -> fold angle. We adapt it to a normalized animation point.
-  calcFold(width, height, progress, forward) {
-    const t = Math.max(0, Math.min(1, progress));
-    // Start from the outer edge and travel toward the spine.
-    const x = forward ? width * (1 - t) : width * t;
-    const y = height * (0.50 + 0.10 * Math.sin(Math.PI * t));
+  // Fold line from the active corner. This is a simplified reconstruction of
+  // the corner/fold geometry: the fold normal follows the corner's movement,
+  // and its distance from the page center controls the local bend.
+  foldFromCorner(corner, width, height, forward) {
+    const cx = width / 2;
+    const cy = height / 2;
+    const dx = corner.x - cx;
+    const dy = corner.y - cy;
+    const distance = Math.hypot(dx, dy) || 1;
 
-    const left = width - x + 1;
-    const top = Math.max(1, y);
-    let angle = 2 * Math.acos(Math.min(1, left / Math.sqrt(top * top + left * left)));
-    if (!Number.isFinite(angle)) angle = 0;
+    const nx = dx / distance;
+    const ny = dy / distance;
 
-    // Forward and backward are mirror images.
-    if (!forward) angle = -angle;
+    const angle = Math.atan2(ny, nx);
+    const reach = this.clamp(distance / Math.hypot(width, height), 0, 1);
 
-    // A continuous depth term gives the fold a physical "bow".
-    const depth = 62 * Math.sin(Math.PI * t);
-
-    return { x, y, angle, depth };
+    return {
+      nx, ny, angle,
+      bend: (1 - reach) * Math.PI * .82 + Math.PI * .08,
+      depth: 28 + 78 * Math.sin(Math.PI * reach)
+    };
   }
 
   async turn(direction) {
@@ -66,12 +79,12 @@ window.LongboxNativePageTurn = class {
 
     const viewport = r.els.viewport;
     const layer = document.createElement("div");
-    layer.className = `native-geometry-turn ${direction}`;
+    layer.className = `native-corner-turn ${direction}`;
     layer.style.setProperty("--turn-duration", `${this.duration}ms`);
     layer.style.setProperty("--n", this.samples);
 
     const under = document.createElement("img");
-    under.className = "native-geometry-under";
+    under.className = "native-corner-under";
     under.src = newUrl;
     under.draggable = false;
     under.alt = "";
@@ -79,7 +92,7 @@ window.LongboxNativePageTurn = class {
 
     for (let i = 0; i < this.samples; i++) {
       const piece = document.createElement("div");
-      piece.className = "native-geometry-piece";
+      piece.className = "native-corner-piece";
       piece.style.setProperty("--i", i);
       piece.style.setProperty("--n", this.samples);
 
@@ -96,8 +109,7 @@ window.LongboxNativePageTurn = class {
     layer.getBoundingClientRect();
     await new Promise(resolve => requestAnimationFrame(resolve));
 
-    // Drive CSS custom properties from the actual fold geometry every frame.
-    const pieces = [...layer.querySelectorAll(".native-geometry-piece")];
+    const pieces = [...layer.querySelectorAll(".native-corner-piece")];
     const start = performance.now();
     let ended = false;
 
@@ -119,30 +131,49 @@ window.LongboxNativePageTurn = class {
 
     const frame = now => {
       if (ended) return;
+
       const raw = Math.min(1, (now - start) / this.duration);
-      const ease = raw < .5
+      const progress = raw < .5
         ? 4 * raw * raw * raw
         : 1 - Math.pow(-2 * raw + 2, 3) / 2;
 
-      const fold = this.calcFold(rect.width, rect.height, ease, direction === "next");
-      layer.style.setProperty("--fold-x", `${fold.x}px`);
-      layer.style.setProperty("--fold-y", `${fold.y}px`);
-      layer.style.setProperty("--fold-depth", `${fold.depth}px`);
+      const corner = this.cornerAt(progress, direction === "next", rect.width, rect.height);
+      const fold = this.foldFromCorner(corner, rect.width, rect.height, direction === "next");
+
+      layer.style.setProperty("--corner-x", `${corner.x}px`);
+      layer.style.setProperty("--corner-y", `${corner.y}px`);
       layer.style.setProperty("--fold-angle", `${fold.angle}rad`);
 
       pieces.forEach((piece, i) => {
         const u = i / (pieces.length - 1);
-        // The fold is a traveling wave. The center follows the fold most
-        // strongly; edges lag smoothly behind it.
-        const proximity = Math.exp(-Math.pow((u - (direction === "next" ? 1-ease : ease)) / .23, 2));
-        const localAngle = fold.angle * (0.25 + 0.75 * proximity);
-        const bow = fold.depth * Math.sin(Math.PI * u) * Math.sin(Math.PI * ease);
-        const lift = bow * (0.72 + .28 * proximity);
 
-        piece.style.setProperty("--local-angle", `${localAngle}rad`);
-        piece.style.setProperty("--local-depth", `${lift}px`);
-        piece.style.setProperty("--local-y", `${(u - .5) * -2.5 * Math.sin(Math.PI * ease)}px`);
-        piece.style.setProperty("--shade", `${0.10 + .26 * proximity * Math.sin(Math.PI * ease)}`);
+        // The active corner influences the nearby portion most strongly.
+        // The influence then rolls smoothly across the sheet.
+        const target = direction === "next" ? 1 - progress : progress;
+        const influence = Math.exp(-Math.pow((u - target) / .30, 2));
+
+        // Corner grab creates both horizontal rotation and a slight vertical
+        // tilt, so the page can curl down/up as it travels.
+        const yaw = (direction === "next" ? -1 : 1) *
+          (8 + 142 * influence + 22 * Math.sin(Math.PI * progress) * Math.sin(Math.PI * u));
+
+        const pitch = (corner.y / rect.height - .5) *
+          (direction === "next" ? -1 : 1) *
+          (12 + 26 * influence);
+
+        const depth = fold.depth * Math.sin(Math.PI * u) *
+          (0.35 + .65 * influence);
+
+        const vertical = (corner.y - rect.height * .5) *
+          influence * .18;
+
+        const shade = .04 + .34 * influence * Math.sin(Math.PI * progress);
+
+        piece.style.setProperty("--yaw", `${yaw}deg`);
+        piece.style.setProperty("--pitch", `${pitch}deg`);
+        piece.style.setProperty("--depth", `${depth}px`);
+        piece.style.setProperty("--vertical", `${vertical}px`);
+        piece.style.setProperty("--shade", shade.toFixed(3));
       });
 
       if (raw < 1) requestAnimationFrame(frame);
