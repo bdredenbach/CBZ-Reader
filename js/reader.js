@@ -182,6 +182,67 @@ const Reader = {
 
 
 
+
+  initDirectModeDiagnostic() {
+    if (this.directModeDiagnosticInitialized) return;
+
+    const buttons = Array.from(document.querySelectorAll(
+      ".reader-topbar button, .reader-bottombar button, " +
+      "[data-mode], [data-reader-mode]"
+    ));
+
+    const modeFromButton = (btn) => {
+      const raw = btn.dataset.mode || btn.dataset.readerMode ||
+        btn.getAttribute("aria-label") || btn.textContent || "";
+      const s = raw.trim().toLowerCase();
+      if (s.includes("manga")) return "manga";
+      if (s.includes("spread")) return "spread";
+      if (s.includes("scroll")) return "scroll";
+      if (s.includes("webcomic")) return "webcomic";
+      if (s.includes("page")) return "single";
+      return null;
+    };
+
+    const direct = (mode) => {
+      if (!mode) return;
+      console.info("[PageMode diagnostic] direct mode switch:", mode);
+
+      // Use the Reader's existing public mode-switch path if present.
+      if (typeof this.setMode === "function") {
+        this.setMode(mode);
+        return;
+      }
+      if (typeof this.switchMode === "function") {
+        this.switchMode(mode);
+        return;
+      }
+      if (typeof this.renderMode === "function") {
+        this.renderMode(mode);
+        return;
+      }
+
+      // Last-resort: dispatch the same semantic event the existing controls use.
+      document.dispatchEvent(new CustomEvent("longbox:mode-request", {
+        detail: { mode }
+      }));
+    };
+
+    buttons.forEach(btn => {
+      const mode = modeFromButton(btn);
+      if (!mode) return;
+
+      btn.dataset.directModeDiagnostic = mode;
+      btn.addEventListener("click", (e) => {
+        if (this.mode !== "single") return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        direct(mode);
+      }, true);
+    });
+
+    this.directModeDiagnosticInitialized = true;
+  },
+
   initTouchDiagnostic() {
     if (this.touchDiagnosticInitialized) return;
     const overlay = document.getElementById("touch-diagnostic");
@@ -369,6 +430,7 @@ const Reader = {
       if (!this.pageModeEngine) {
         this.initControlsPortal();
       this.initTouchDiagnostic();
+      this.initDirectModeDiagnostic();
       this.setTouchDiagnosticActive(true);
       this.setControlsPortalActive(true);
       this.pageModeEngine = new window.LongboxPageMode({
