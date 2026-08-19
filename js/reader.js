@@ -36,6 +36,7 @@ const Reader = {
     this.els.view = document.getElementById("reader-view");
     this.els.stage = document.getElementById("reader-stage");
     this.els.viewport = document.getElementById("page-viewport");
+    this.els.pageFlipBook = document.getElementById("pageflip-book");
     this.els.chrome = document.getElementById("reader-chrome");
     this.els.title = document.getElementById("reader-title");
     this.els.slider = document.getElementById("page-slider");
@@ -183,17 +184,18 @@ const Reader = {
       }
 
       this.els.viewport.innerHTML = "";
-      this.els.viewport.classList.add("page-mode-stf-host");
+      this.els.viewport.classList.add("page-mode-underlay");
       this.els.loading.style.display = "flex";
 
-      const ok = await this.pageModeEngine.render(this.els.viewport);
+      const pageHost = this.els.pageFlipBook || this.els.viewport;
+      const ok = await this.pageModeEngine.render(pageHost);
       this.els.loading.style.display = "none";
 
       if (ok) return;
 
       // If the experimental renderer fails, immediately fall back to v77's
       // known-good page renderer instead of leaving the reader blank.
-      this.els.viewport.classList.remove("page-mode-stf-host");
+      this.els.viewport.classList.remove("page-mode-underlay");
     }
 
     if (this.pageModeEngine) {
