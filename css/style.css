@@ -1056,3 +1056,42 @@ button.reader-btn.mini-btn {
   -webkit-user-drag: none;
   pointer-events: none;
 }
+
+
+/* v57 — isolated Turn.js Page Mode test. The normal reader remains intact. */
+#pageflip-book.pageflip-book {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 50 !important;
+  display: none;
+  overflow: hidden;
+  pointer-events: auto !important;
+  background: transparent;
+}
+.page-mode-underlay {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.longbox-turn-book {
+  position: absolute;
+  overflow: hidden;
+  background: transparent;
+  transform: translateZ(0);
+}
+.longbox-turn-page {
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+.longbox-turn-page img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+.longbox-turn-book .turn-page { background: transparent; }
