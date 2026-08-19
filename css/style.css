@@ -1300,105 +1300,6 @@ button.reader-btn.mini-btn {
 }
 
 
-/* v59.3 — Geometry Curl */
-.native-geometry-turn {
-  position:absolute; inset:0; z-index:4; overflow:hidden;
-  pointer-events:none; transform-style:preserve-3d; perspective:2200px;
-}
-.native-geometry-under {
-  position:absolute; inset:0; width:100%; height:100%;
-  object-fit:contain; display:block; pointer-events:none;
-}
-.native-geometry-piece {
-  position:absolute; top:0; bottom:0;
-  left:calc(var(--i) * (100% / var(--n)));
-  width:calc(100% / var(--n)); overflow:hidden;
-  transform-origin:center center; transform-style:preserve-3d;
-  backface-visibility:hidden; pointer-events:none;
-  will-change:transform,filter;
-  transform:
-    translate3d(0,var(--local-y),var(--local-depth))
-    rotateY(var(--local-angle));
-  filter:brightness(calc(1 - var(--shade)));
-}
-.native-geometry-turn.prev .native-geometry-piece {
-  right:calc(var(--i) * (100% / var(--n)));
-  left:auto;
-}
-.native-geometry-piece img {
-  position:absolute; top:0; left:calc(var(--i) * -100%);
-  width:calc(var(--n) * 100%); max-width:none; height:100%;
-  object-fit:contain; display:block; pointer-events:none;
-  user-select:none; -webkit-user-drag:none;
-}
-.native-geometry-turn::after {
-  content:""; position:absolute; top:0; bottom:0; width:10%;
-  pointer-events:none; opacity:.0; filter:blur(2px);
-  background:linear-gradient(to right,
-    rgba(255,255,255,0),
-    rgba(255,255,255,.25) 45%,
-    rgba(0,0,0,.45) 70%,
-    rgba(0,0,0,0));
-}
-.native-geometry-turn.next::after {
-  right:0;
-  animation:lb593-geometry-shadow-next var(--turn-duration) ease-out forwards;
-}
-.native-geometry-turn.prev::after {
-  left:0; transform:scaleX(-1);
-  animation:lb593-geometry-shadow-prev var(--turn-duration) ease-out forwards;
-}
-@keyframes lb593-geometry-shadow-next {
-  0%,12%{opacity:0;transform:translateX(35%)}
-  42%{opacity:.48;transform:translateX(-5%)}
-  62%{opacity:.25;transform:translateX(-55%)}
-  82%{opacity:.10;transform:translateX(-115%)}
-  100%{opacity:0;transform:translateX(-165%)}
-}
-@keyframes lb593-geometry-shadow-prev {
-  0%,12%{opacity:0;transform:translateX(-35%) scaleX(-1)}
-  42%{opacity:.48;transform:translateX(5%) scaleX(-1)}
-  62%{opacity:.25;transform:translateX(55%) scaleX(-1)}
-  82%{opacity:.10;transform:translateX(115%) scaleX(-1)}
-  100%{opacity:0;transform:translateX(165%) scaleX(-1)}
-}
-
-
-/* v59.4 — Corner Grab Curl */
-.native-corner-turn {
-  position:absolute; inset:0; z-index:4; overflow:hidden;
-  pointer-events:none; transform-style:preserve-3d;
-  perspective:2200px; background:transparent;
-}
-.native-corner-under {
-  position:absolute; inset:0; width:100%; height:100%;
-  object-fit:contain; display:block; pointer-events:none;
-}
-.native-corner-piece {
-  position:absolute; top:0; bottom:0;
-  left:calc(var(--i) * (100% / var(--n)));
-  width:calc(100% / var(--n)); overflow:hidden;
-  transform-origin:center center;
-  transform-style:preserve-3d;
-  backface-visibility:hidden;
-  will-change:transform,filter;
-  pointer-events:none;
-  transform:
-    translate3d(0,var(--vertical),var(--depth))
-    rotateX(var(--pitch))
-    rotateY(var(--yaw));
-  filter:brightness(calc(1 - var(--shade)));
-}
-.native-corner-turn.prev .native-corner-piece {
-  right:calc(var(--i) * (100% / var(--n)));
-  left:auto;
-}
-.native-corner-piece img {
-  position:absolute; top:0; left:calc(var(--i) * -100%);
-  width:calc(var(--n) * 100%); max-width:none; height:100%;
-  object-fit:contain; display:block;
-  pointer-events:none; user-select:none; -webkit-user-drag:none;
-}
 
 /* A fold highlight follows the simulated grabbed corner. */
 .native-corner-turn::after {
@@ -1435,5 +1336,76 @@ button.reader-btn.mini-btn {
   35%{opacity:.45;transform:translateX(0) scaleX(-1)}
   55%{opacity:.30;transform:translateX(45%) scaleX(-1)}
   75%{opacity:.12;transform:translateX(105%) scaleX(-1)}
+  100%{opacity:0;transform:translateX(165%) scaleX(-1)}
+}
+
+
+/* v59.5 — Moving Fold Line */
+.native-moving-fold {
+  position:absolute; inset:0; z-index:4; overflow:hidden;
+  pointer-events:none; transform-style:preserve-3d;
+  perspective:2300px; background:transparent;
+}
+.native-moving-fold-under {
+  position:absolute; inset:0; width:100%; height:100%;
+  object-fit:contain; display:block; pointer-events:none;
+}
+.native-moving-fold-piece {
+  position:absolute; top:0; bottom:0;
+  left:calc(var(--i) * (100% / var(--n)));
+  width:calc(100% / var(--n)); overflow:hidden;
+  transform-origin:center center;
+  transform-style:preserve-3d;
+  backface-visibility:hidden;
+  pointer-events:none;
+  will-change:transform,filter;
+  transform:
+    translate3d(0,var(--lift),var(--depth))
+    rotateX(var(--pitch))
+    rotateY(var(--angle));
+  filter:brightness(calc(1 - var(--shade)));
+}
+.native-moving-fold.prev .native-moving-fold-piece {
+  right:calc(var(--i) * (100% / var(--n)));
+  left:auto;
+}
+.native-moving-fold-piece img {
+  position:absolute; top:0; left:calc(var(--i) * -100%);
+  width:calc(var(--n) * 100%); max-width:none; height:100%;
+  object-fit:contain; display:block; pointer-events:none;
+  user-select:none; -webkit-user-drag:none;
+}
+
+/* Narrow moving highlight that marks the actual fold rather than the entire
+   leading edge. */
+.native-moving-fold::after {
+  content:""; position:absolute; top:0; bottom:0; width:9%;
+  pointer-events:none; opacity:.0; filter:blur(2px);
+  background:linear-gradient(to right,
+    rgba(255,255,255,0),
+    rgba(255,255,255,.28) 42%,
+    rgba(0,0,0,.48) 68%,
+    rgba(0,0,0,0));
+}
+.native-moving-fold.next::after {
+  right:0;
+  animation:lb595-fold-next var(--turn-duration) ease-out forwards;
+}
+.native-moving-fold.prev::after {
+  left:0; transform:scaleX(-1);
+  animation:lb595-fold-prev var(--turn-duration) ease-out forwards;
+}
+@keyframes lb595-fold-next {
+  0%,12%{opacity:0;transform:translateX(35%)}
+  35%{opacity:.42;transform:translateX(5%)}
+  58%{opacity:.30;transform:translateX(-42%)}
+  78%{opacity:.12;transform:translateX(-105%)}
+  100%{opacity:0;transform:translateX(-165%)}
+}
+@keyframes lb595-fold-prev {
+  0%,12%{opacity:0;transform:translateX(-35%) scaleX(-1)}
+  35%{opacity:.42;transform:translateX(-5%) scaleX(-1)}
+  58%{opacity:.30;transform:translateX(42%) scaleX(-1)}
+  78%{opacity:.12;transform:translateX(105%) scaleX(-1)}
   100%{opacity:0;transform:translateX(165%) scaleX(-1)}
 }
