@@ -59,24 +59,29 @@ window.LongboxPageMode = (() => {
       const width = Math.max(240, Math.round(rect.width || window.innerWidth));
       const height = Math.max(360, Math.round(rect.height || window.innerHeight));
 
-      const pages = [];
-      for (let i = 0; i < issue.pageCount; i++) {
-        const url = await this.getPageUrl(i);
-        if (!url) continue;
+      // Fetch page URLs in parallel. The previous experimental version
+      // awaited 74 IndexedDB reads one-by-one, which could leave Page Mode
+      // sitting on "Loading page..." for a long time before StPageFlip even
+      // received its first page.
+      const urls = await Promise.all(
+        Array.from({ length: issue.pageCount }, (_, i) => this.getPageUrl(i))
+      );
 
+      const pages = urls.map((url, i) => {
         const page = document.createElement("div");
         page.className = "longbox-flip-page";
         page.dataset.density = "soft";
+        page.dataset.index = String(i);
 
         const img = document.createElement("img");
-        img.src = url;
         img.alt = "";
         img.draggable = false;
         img.decoding = "async";
+        if (url) img.src = url;
 
         page.appendChild(img);
-        pages.push(page);
-      }
+        return page;
+      }).filter((page) => page.querySelector("img")?.src);
 
       if (!pages.length) return false;
       this.pages = pages;
@@ -125,11 +130,7 @@ window.LongboxPageMode = (() => {
       // renderer and does not expose the soft/hard HTML page density.
       flip.loadFromHtml(pages);
 
-      await new Promise(resolve =>
-        requestAnimationFrame(() =>
-          requestAnimationFrame(resolve)
-        )
-      );
+      await new Promise(resolve => requestAnimationFrame(resolve));
 
       const index = Math.max(
         0,
