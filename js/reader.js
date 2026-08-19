@@ -200,11 +200,7 @@ const Reader = {
     await this.render();
   },
 
-  async close() {
-    if (this.pageModeEngine) {
-      await this.pageModeEngine.destroy();
-      this.pageModeEngine = null;
-    }
+  close() {
     this.saveProgress();
     this.revokeAll();
     window.LongboxApp.closeReader();
@@ -243,9 +239,6 @@ const Reader = {
     this.els.viewport.style.width = "";
     this.els.viewport.style.height = "";
 
-    // Isolated Page Mode restart test:
-    // use the known-good PageMode engine from the last successful experiment,
-    // while leaving every other reader mode on the baseline renderer.
     if (this.mode === "single") {
       if (!this.pageModeEngine) {
         this.pageModeEngine = new window.LongboxPageMode({
@@ -266,31 +259,27 @@ const Reader = {
       }
 
       this.els.viewport.innerHTML = "";
-      this.els.viewport.classList.add("page-mode-underlay");
-      this.els.pageFlipBook.innerHTML = "";
+      this.els.viewport.classList.add("page-mode-isolated-host");
       this.els.loading.style.display = "flex";
 
-      const ok = await this.pageModeEngine.render(this.els.pageFlipBook);
-      this.els.loading.style.display = "none";
-
+      const ok = await this.pageModeEngine.render(this.els.viewport);
       if (ok) {
-        this._pageTurnDirection = null;
+        this.els.loading.style.display = "none";
         return;
       }
 
-      this.els.viewport.classList.remove("page-mode-underlay");
-    } else if (this.pageModeEngine) {
-      await this.pageModeEngine.destroy();
-      this.pageModeEngine = null;
-      this.els.viewport.classList.remove("page-mode-underlay");
+      this.els.loading.style.display = "none";
+      this.els.viewport.classList.remove("page-mode-isolated-host");
+    } else {
+      if (this.pageModeEngine) await this.pageModeEngine.destroy();
+      this.els.viewport.classList.remove("page-mode-isolated-host");
     }
 
-
+    // Baseline renderer remains intact outside Page Mode.
     const oldPage = this.mode === "single"
       ? this.els.viewport.querySelector("img")
       : null;
     const oldPageSrc = oldPage ? oldPage.src : null;
-
     const oldTurn = this.els.viewport.querySelector(".page-turn-overlay");
     if (oldTurn) oldTurn.remove();
 
@@ -303,7 +292,8 @@ const Reader = {
 
     const urls = await Promise.all(indices.map((i) => this.getPageUrl(i)));
     this.els.loading.style.display = "none";
-    this.els.viewport.innerHTML = "";
+    this.els.viewport.classList.remove("page-mode-isolated-host");
+
     const renderedImages = [];
     urls.forEach((url) => {
       if (!url) return;
@@ -339,25 +329,16 @@ const Reader = {
         overlay.appendChild(sheet);
         this.els.viewport.appendChild(overlay);
 
-        const left = incoming.offsetLeft;
-        const top = incoming.offsetTop;
-        const width = incoming.offsetWidth;
-        const height = incoming.offsetHeight;
+        overlay.style.left = `${incoming.offsetLeft}px`;
+        overlay.style.top = `${incoming.offsetTop}px`;
+        overlay.style.width = `${incoming.offsetWidth}px`;
+        overlay.style.height = `${incoming.offsetHeight}px`;
 
-        overlay.style.left = `${left}px`;
-        overlay.style.top = `${top}px`;
-        overlay.style.width = `${width}px`;
-        overlay.style.height = `${height}px`;
+        overlay.classList.add(
+          this._pageTurnDirection === "next" ? "page-turn-next" : "page-turn-prev"
+        );
 
-        const directionClass =
-          this._pageTurnDirection === "next"
-            ? "page-turn-next"
-            : "page-turn-prev";
-        overlay.classList.add(directionClass);
-
-        const remove = () => {
-          overlay.remove();
-        };
+        const remove = () => overlay.remove();
         overlay.addEventListener("animationend", remove, { once: true });
         setTimeout(remove, 800);
       }
@@ -757,6 +738,7 @@ const Reader = {
     if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
     const wasSpread = this.mode === "spread";
+    if (mode !== "single" && this.pageModeEngine) this.pageModeEngine.destroy();
     this.mode = mode;
     this.comic.readMode = mode;
     LongboxDB.updateComic(this.comic.id, { readMode: mode });
@@ -889,13 +871,21 @@ const Reader = {
   },
 
   next() {
-    const step = this.mode === "spread" ? 2 : 1;
     this.showChrome();
+    if (this.mode === "single" && this.pageModeEngine) {
+      this.pageModeEngine.next();
+      return;
+    }
+    const step = this.mode === "spread" ? 2 : 1;
     this.goTo(this.index + step);
   },
   prev() {
-    const step = this.mode === "spread" ? 2 : 1;
     this.showChrome();
+    if (this.mode === "single" && this.pageModeEngine) {
+      this.pageModeEngine.prev();
+      return;
+    }
+    const step = this.mode === "spread" ? 2 : 1;
     this.goTo(this.index - step);
   },
 
@@ -1354,7 +1344,7 @@ const Reader = {
           if (panStart) {
             const dx = endTouch.clientX - panStart.x;
             const dy = endTouch.clientY - panStart.y;
-            if (!this.focusMode && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+            if (!this.focusMode && !this.pageModeEngine && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
               this.debugLog(`-> swipe page-turn dx=${dx.toFixed(0)}`);
               if (dx < 0) this.next(); else this.prev();
               panStart = null;
