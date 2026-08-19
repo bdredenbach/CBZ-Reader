@@ -1204,34 +1204,35 @@ button.reader-btn.mini-btn {
 }
 
 
-/* v74 — isolated Page Mode / Turn.js restart test */
-.page-mode-underlay {
-  visibility: hidden !important;
-  pointer-events: none !important;
+/* v75 — isolated StPageFlip soft-page experiment */
+#page-viewport.page-mode-isolated-host {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  z-index: 5 !important;
 }
-
-#pageflip-book.pageflip-book {
-  position: absolute;
-  overflow: hidden;
-  background: transparent;
-  z-index: 4;
-  pointer-events: auto;
+.page-mode-isolated-host .stf__parent {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
 }
-
-.longbox-turn-book {
-  position: absolute;
-  overflow: hidden;
-  background: transparent;
-  transform: translateZ(0);
+.page-mode-isolated-host .stf__block {
+  width: 100% !important;
+  height: 100% !important;
 }
-
-.longbox-turn-page {
+.page-mode-isolated-host .longbox-flip-page {
   position: relative;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   background: #000;
 }
-
-.longbox-turn-page img {
+.page-mode-isolated-host .longbox-flip-page > img {
   display: block;
   width: 100%;
   height: 100%;
@@ -1239,14 +1240,4 @@ button.reader-btn.mini-btn {
   user-select: none;
   -webkit-user-drag: none;
   pointer-events: none;
-}
-
-.longbox-turn-book .turn-page {
-  background: transparent;
-}
-
-.reader-stage.page-mode-active .reader-tap-zones,
-body.page-mode-active .reader-tap-zones {
-  display: none !important;
-  pointer-events: none !important;
 }
