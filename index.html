@@ -114,6 +114,7 @@
 <section id="reader-view" class="view">
   <div class="reader-stage" id="reader-stage">
     <div class="page-viewport" id="page-viewport"></div>
+    <div id="pageflip-book" class="pageflip-book" aria-hidden="true"></div>
     <div class="reader-tap-zones">
       <div class="tap-zone"></div>
       <div class="tap-zone"></div>
@@ -235,11 +236,13 @@
 </section>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="js/page-flip.browser.min.js"></script>
 <script src="js/db.js"></script>
 <script src="js/library.js"></script>
 <script src="js/panels.js"></script>
 <script src="js/bubbles.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/turn.js/3/turn.min.js"></script>
+<script src="js/page-mode.js"></script>
 <script src="js/reader.js"></script>
 <script src="js/app.js"></script>
 <script>
