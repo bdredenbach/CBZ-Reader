@@ -761,7 +761,7 @@ const Reader = {
    this.els.chrome.classList.add("visible");
    clearTimeout(this.chromeTimer);
    if (!persist) {
-     this.chromeTimer = setTimeout(() => { this.debugLog("auto-hideChrome (3.2s timer)"); this.hideChrome(); }, 3200);
+     this.chromeTimer = setTimeout(() => { this.debugLog("auto-hideChrome (1.0s timer)"); this.hideChrome(); }, 1000);
    }
  },
 
