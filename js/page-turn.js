@@ -12,7 +12,6 @@ window.LongboxNativePageTurn = class {
     this.reader = reader;
     this.running = false;
     this.duration = 650;
-    this.bowBands = 18;
   }
 
   clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
@@ -165,6 +164,28 @@ window.LongboxNativePageTurn = class {
         corner,forward,oldBox.w,oldBox.h
       );
 
+      /*
+       * v59.13 — tiny corner furl.
+       *
+       * The furl lives entirely inside the existing v59.11 transform.
+       * It is strongest near the outer corner, peaks in the middle of the
+       * turn, and fades before the page lands. This intentionally does NOT
+       * create another rendering surface.
+       */
+      const furlPhase=Math.sin(Math.PI*t);
+      const cornerProximity=1-this.clamp(
+        Math.abs(corner.x-(forward?oldBox.w:0))/oldBox.w,
+        0,1
+      );
+      const furlStrength=
+        furlPhase *
+        Math.pow(cornerProximity,.65);
+
+      motion.yaw += (forward?-1:1) * .075 * furlStrength;
+      motion.pitch += (forward?-1:1) * .035 * furlStrength;
+      motion.depth += Math.min(oldBox.w,oldBox.h) *
+        .006 * furlStrength;
+
       ctx.clearRect(0,0,rect.width,rect.height);
 
       // Next page is always underneath.
@@ -203,37 +224,11 @@ window.LongboxNativePageTurn = class {
         -oldBox.h*.5
       );
 
-      /*
-       * v59.12 — subtle paper bow.
-       *
-       * The center of the sheet lags very slightly behind the edges while
-       * the corner-driven rotation is occurring. The displacement is only a
-       * few pixels and fades to zero at the top/bottom edges, so the page
-       * still reads as one sheet rather than a segmented effect.
-       */
-      const bowStrength =
-        Math.sin(Math.PI*t) * Math.sin(Math.PI*t) *
-        Math.min(oldBox.w, oldBox.h) * .012;
-
-      const bands = this.bowBands;
-      for(let bi=0; bi<bands; bi++){
-        const v0=bi/bands;
-        const v1=(bi+1)/bands;
-        const sy0=v0*oldBox.h;
-        const sy1=v1*oldBox.h;
-        const mid=v0+.5/bands;
-
-        // Maximum bow at the center, zero at the edges.
-        const bow=Math.sin(Math.PI*mid)*bowStrength;
-
-        ctx.drawImage(
-          oldImg,
-          0,sy0,
-          oldBox.w,Math.max(1,sy1-sy0),
-          0,bow,
-          oldBox.w,Math.max(1,sy1-sy0)
-        );
-      }
+      ctx.drawImage(
+        oldImg,
+        0,0,
+        oldBox.w,oldBox.h
+      );
 
       ctx.restore();
 
