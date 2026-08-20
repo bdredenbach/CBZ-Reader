@@ -93,9 +93,6 @@ var has3d,
 
 		cornerSize: 100,
 
-		// Experimental: allow a drag to begin away from a physical corner.
-		middleGrab: false,
-
 		// Enables gradients
 
 		gradients: true,
@@ -1250,7 +1247,7 @@ flipMethods = {
 	_cornerActivated: function(e) {
 		if (e.originalEvent === undefined) {
 			return false;
-		}
+		}		
 
 		e = (isTouch) ? e.originalEvent.touches : [e];
 
@@ -1262,44 +1259,17 @@ flipMethods = {
 			csz = data.opts.cornerSize,
 			allowedCorners = flipMethods._cAllowed.call(this);
 
-		if (c.x<=0 || c.y<=0 || c.x>=width || c.y>=height) return false;
+			if (c.x<=0 || c.y<=0 || c.x>=width || c.y>=height) return false;
 
-		if (c.y<csz) c.corner = 't';
-		else if (c.y>=height-csz) c.corner = 'b';
-		else c.corner = null;
-
-		if (c.corner) {
+			if (c.y<csz) c.corner = 't';
+			else if (c.y>=height-csz) c.corner = 'b';
+			else return false;
+			
 			if (c.x<=csz) c.corner+= 'l';
 			else if (c.x>=width-csz) c.corner+= 'r';
-			else c.corner = null;
-		}
+			else return false;
 
-		if (c.corner && $.inArray(c.corner, allowedCorners)!=-1)
-			return c;
-
-		// Experimental middle-grab path. The fold still uses Turn.js's
-		// normal allowed corners, while the actual touch point remains the
-		// fold origin.
-		if (data.opts.middleGrab) {
-			var best = null, bestDist = Infinity;
-			for (var i=0; i<allowedCorners.length; i++) {
-				var ac = allowedCorners[i],
-					cp = flipMethods._c.call(this, ac),
-					dx = c.x-cp.x,
-					dy = c.y-cp.y,
-					dist = dx*dx + dy*dy;
-				if (dist < bestDist) {
-					bestDist = dist;
-					best = ac;
-				}
-			}
-			if (best) {
-				c.corner = best;
-				return c;
-			}
-		}
-
-		return false;
+		return ($.inArray(c.corner, allowedCorners)==-1) ? false : c;
 
 	},
 

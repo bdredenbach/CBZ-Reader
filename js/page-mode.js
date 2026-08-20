@@ -18,6 +18,10 @@ window.LongboxPageMode = (() => {
       this.issueKey = null;
       this.pageCount = 0;
       this._boundResize = () => this.resize();
+      this._gesture = null;
+      this._boundGestureStart = (e) => this._gestureStart(e);
+      this._boundGestureMove = (e) => this._gestureMove(e);
+      this._boundGestureEnd = (e) => this._gestureEnd(e);
       this._destroyed = false;
     }
 
@@ -30,6 +34,7 @@ window.LongboxPageMode = (() => {
       this.issueKey = null;
       this.pageCount = 0;
       window.removeEventListener("resize", this._boundResize);
+      this._removeGestureGrab();
       if (this.host) {
         this.host.innerHTML = "";
 
@@ -139,7 +144,6 @@ window.LongboxPageMode = (() => {
           gradients: true,
           acceleration: true,
           elevation: 0.05,
-          middleGrab: true,
           duration: 600,
           direction: "ltr",
           pages: 1,
@@ -152,6 +156,7 @@ window.LongboxPageMode = (() => {
 
       this.book = $book;
       this.issueKey = issueKey;
+      this._installGestureGrab(book);
       this.onState("ready=1");
 
       $book.bind("turned", (_event, page) => {
@@ -189,6 +194,91 @@ window.LongboxPageMode = (() => {
         this.onState(`ready=${this.pageCount}`);
       }
       return true;
+    }
+
+    _installGestureGrab(book) {
+      this._removeGestureGrab();
+      // We only listen on the page book. Corner touches remain Turn.js's own
+      // gesture path; this layer only activates after a deliberate middle drag.
+      book.addEventListener("touchstart", this._boundGestureStart, { passive: true });
+      book.addEventListener("touchmove", this._boundGestureMove, { passive: false });
+      book.addEventListener("touchend", this._boundGestureEnd, { passive: true });
+      book.addEventListener("touchcancel", this._boundGestureEnd, { passive: true });
+      book.addEventListener("pointerdown", this._boundGestureStart, { passive: true });
+      book.addEventListener("pointermove", this._boundGestureMove, { passive: false });
+      book.addEventListener("pointerup", this._boundGestureEnd, { passive: true });
+      book.addEventListener("pointercancel", this._boundGestureEnd, { passive: true });
+      this._gestureBook = book;
+    }
+
+    _removeGestureGrab() {
+      const book = this._gestureBook;
+      if (!book) return;
+      book.removeEventListener("touchstart", this._boundGestureStart);
+      book.removeEventListener("touchmove", this._boundGestureMove);
+      book.removeEventListener("touchend", this._boundGestureEnd);
+      book.removeEventListener("touchcancel", this._boundGestureEnd);
+      book.removeEventListener("pointerdown", this._boundGestureStart);
+      book.removeEventListener("pointermove", this._boundGestureMove);
+      book.removeEventListener("pointerup", this._boundGestureEnd);
+      book.removeEventListener("pointercancel", this._boundGestureEnd);
+      this._gestureBook = null;
+      this._gesture = null;
+    }
+
+    _gestureStart(e) {
+      if (!this.book || !this._gestureBook) return;
+      const p = e.touches?.[0] || e;
+      if (!p || typeof p.clientX !== "number") return;
+
+      const rect = this._gestureBook.getBoundingClientRect();
+      const x = p.clientX - rect.left;
+      const y = p.clientY - rect.top;
+      const corner = 110;
+      const nearCorner =
+        (x < corner || x > rect.width - corner) &&
+        (y < corner || y > rect.height - corner);
+
+      // Don't compete with Turn.js's native corner-grab gesture.
+      if (nearCorner) {
+        this._gesture = null;
+        return;
+      }
+
+      this._gesture = {
+        x0: p.clientX,
+        y0: p.clientY,
+        lastX: p.clientX,
+        lastY: p.clientY,
+        active: true,
+        triggered: false
+      };
+    }
+
+    _gestureMove(e) {
+      const g = this._gesture;
+      if (!g || !g.active || g.triggered || !this.book) return;
+      const p = e.touches?.[0] || e;
+      if (!p || typeof p.clientX !== "number") return;
+
+      g.lastX = p.clientX;
+      g.lastY = p.clientY;
+      const dx = p.clientX - g.x0;
+      const dy = p.clientY - g.y0;
+
+      // Require a clear horizontal drag, not a tap or vertical scroll.
+      if (Math.abs(dx) < 28 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+
+      g.triggered = true;
+      e.preventDefault();
+
+      // LTR: drag left = next, drag right = previous.
+      if (dx < 0) this.next();
+      else this.prev();
+    }
+
+    _gestureEnd() {
+      this._gesture = null;
     }
 
     resize() {
