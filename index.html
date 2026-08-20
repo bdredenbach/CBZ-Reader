@@ -25,7 +25,117 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <link rel="stylesheet" href="css/style.css" />
-<link rel="stylesheet" href="css/turnjs-test.css" />
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="js/turn.js"></script>
+
+<style id="turnjs-oneoff-style">
+#turnjs-oneoff-test {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  display: none;
+}
+#turnjs-oneoff-test .turnjs-book {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%,-50%);
+  width: min(92vw, 900px);
+  height: min(82vh, 700px);
+  pointer-events: auto;
+  background: transparent;
+}
+#turnjs-oneoff-test .turnjs-page {
+  background: #fff;
+  overflow: hidden;
+  position: relative;
+}
+#turnjs-oneoff-test .turnjs-page img {
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:contain;
+}
+#turnjs-oneoff-test .turnjs-status {
+  position:absolute;
+  left:12px;
+  bottom:12px;
+  z-index:20;
+  padding:6px 9px;
+  border-radius:6px;
+  background:rgba(0,0,0,.72);
+  color:#fff;
+  font:12px/1.3 sans-serif;
+}
+</style>
+
+<script id="turnjs-oneoff-harness">
+(function () {
+  'use strict';
+
+  window.CBZTurnJSOneOff = {
+    available: function () {
+      return !!(window.jQuery && window.jQuery.fn && window.jQuery.fn.turn);
+    },
+
+    // Safe diagnostic entry point. The normal reader remains untouched.
+    probe: function () {
+      var ok = this.available();
+      console.log('[Turn.js one-off] available:', ok);
+      return ok;
+    },
+
+    createBook: function (imageUrls) {
+      if (!this.available()) {
+        console.warn('[Turn.js one-off] real Turn.js did not load.');
+        return null;
+      }
+
+      var $ = window.jQuery;
+      var $host = $('<div id="turnjs-oneoff-test"></div>');
+      var $book = $('<div class="turnjs-book"></div>');
+      var $status = $('<div class="turnjs-status"></div>')
+        .text('REAL TURN.JS TEST');
+
+      imageUrls.forEach(function (url, i) {
+        var $page = $('<div class="turnjs-page"></div>');
+        var $img = $('<img alt="">').attr('src', url);
+        $page.append($img);
+        $book.append($page);
+      });
+
+      $host.append($book).append($status);
+      $('body').append($host);
+
+      try {
+        $book.turn({
+          display: 'single',
+          gradients: true,
+          acceleration: true,
+          duration: 600,
+          page: 1
+        });
+
+        $host.show();
+        $status.text('REAL TURN.JS INITIALIZED');
+        return $book;
+      } catch (err) {
+        console.error('[Turn.js one-off] initialization failed:', err);
+        $status.text('TURN.JS INIT FAILED');
+        $host.show();
+        return null;
+      }
+    },
+
+    destroy: function () {
+      var $ = window.jQuery;
+      var $host = $('#turnjs-oneoff-test');
+      if ($host.length) $host.remove();
+    }
+  };
+})();
+</script>
 </head>
 <body>
 
@@ -236,129 +346,10 @@
 </section>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<!-- v59.20 one-off Turn.js test dependency: jQuery is required by turn.js. -->
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="js/turn.js"></script>
 <script src="js/db.js"></script>
 <script src="js/library.js"></script>
 <script src="js/panels.js"></script>
 <script src="js/bubbles.js"></script>
-
-<script>
-/*
- * v59.20 — Turn.js one-off test bridge.
- *
- * This deliberately does not replace the native renderer permanently.
- * page-turn.js calls window.LongboxTurnJsTest when the external library
- * successfully loaded. If it is unavailable, the normal native flip is used.
- */
-window.LongboxTurnJsTest = {
-  available: function () {
-    return !!(window.jQuery && window.jQuery.fn && window.jQuery.fn.turn);
-  },
-
-  turn: async function (reader, direction) {
-    if (!this.available()) return false;
-
-    var $ = window.jQuery;
-    var current = reader.els.viewport.querySelector("img");
-    if (!current || !reader.comic) return false;
-
-    var target = direction === "next" ? reader.index + 1 : reader.index - 1;
-    if (target < 0 || target >= reader.comic.pageCount) return false;
-
-    var oldUrl = current.currentSrc || current.src;
-    var newUrl = await reader.getPageUrl(target);
-    if (!newUrl) return false;
-
-    var viewport = reader.els.viewport.getBoundingClientRect();
-    var host = document.getElementById("turnjs-oneoff-test");
-    var book = document.getElementById("turnjs-oneoff-book");
-    if (!host || !book || viewport.width < 20 || viewport.height < 20) return false;
-
-    host.classList.add("active");
-    book.innerHTML = "";
-
-    var oldPage = document.createElement("div");
-    oldPage.className = "turn-test-page";
-    var newPage = document.createElement("div");
-    newPage.className = "turn-test-page";
-
-    var oldImg = document.createElement("img");
-    var newImg = document.createElement("img");
-    oldImg.src = oldUrl;
-    newImg.src = newUrl;
-    oldPage.appendChild(oldImg);
-    newPage.appendChild(newImg);
-    book.appendChild(oldPage);
-    book.appendChild(newPage);
-
-    var width = Math.max(1, Math.floor(viewport.width));
-    var height = Math.max(1, Math.floor(viewport.height));
-    book.style.width = width + "px";
-    book.style.height = height + "px";
-
-    var $book = $(book);
-    try {
-      // Turn.js expects a DOM book containing page elements and manages the
-      // temporary flip layers itself. We use single display because Longbox
-      // is currently testing portrait/single-page turns.
-      $book.turn({
-        display: "single",
-        width: width,
-        height: height,
-        duration: 600,
-        gradients: true,
-        acceleration: true,
-        page: 1,
-        pages: 2
-      });
-
-      // Turn.js uses page 1 -> 2 for a forward turn. For a previous turn,
-      // start on page 2 and turn back to 1.
-      if (direction === "previous") {
-        $book.turn("page", 2);
-        await new Promise(function(resolve) { requestAnimationFrame(resolve); });
-        $book.turn("previous");
-      } else {
-        $book.turn("next");
-      }
-
-      await new Promise(function(resolve) {
-        var done = false;
-        function finish() {
-          if (done) return;
-          done = true;
-          resolve();
-        }
-        $book.one("turned", finish);
-        setTimeout(finish, 900);
-      });
-
-      $book.turn("destroy");
-      book.innerHTML = "";
-      host.classList.remove("active");
-
-      reader.index = target;
-      reader.updateSliderLabel();
-      reader.updateBookmarkFlag();
-      reader.saveProgress();
-      await reader.render();
-      return true;
-    } catch (err) {
-      console.warn("Turn.js one-off test failed; falling back:", err);
-      try { $book.turn("destroy"); } catch (_) {}
-      book.innerHTML = "";
-      host.classList.remove("active");
-      return false;
-    }
-  }
-};
-</script>
-<div id="turnjs-oneoff-test" aria-hidden="true">
-  <div id="turnjs-oneoff-book"></div>
-</div>
-
 <script src="js/page-turn.js"></script>
 <script src="js/reader.js"></script>
 <script src="js/app.js"></script>
