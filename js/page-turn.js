@@ -12,6 +12,7 @@ window.LongboxNativePageTurn = class {
     this.reader = reader;
     this.running = false;
     this.duration = 650;
+    this.bowBands = 24;
   }
 
   clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
@@ -224,11 +225,47 @@ window.LongboxNativePageTurn = class {
         -oldBox.h*.5
       );
 
-      ctx.drawImage(
-        oldImg,
-        0,0,
-        oldBox.w,oldBox.h
-      );
+      /*
+       * v59.14 — corrected paper bow.
+       *
+       * The previous v59.12 experiment could blank the page because it used
+       * rendered CSS dimensions as source-image pixel coordinates. Here the
+       * source rows are explicitly sampled from naturalHeight/naturalWidth,
+       * while destination rows use the fitted CSS dimensions.
+       *
+       * The bow is intentionally shallow and overlaps neighboring rows so
+       * it reads as a continuous sheet rather than visible strips.
+       */
+      const bowStrength =
+        Math.sin(Math.PI*t) * Math.sin(Math.PI*t) *
+        Math.min(oldBox.w, oldBox.h) * .010;
+
+      const bands=this.bowBands;
+      const sourceH=oldImg.naturalHeight;
+      const sourceW=oldImg.naturalWidth;
+
+      for(let bi=0; bi<bands; bi++){
+        const v0=Math.max(0,bi/bands-.0015);
+        const v1=Math.min(1,(bi+1)/bands+.0015);
+
+        const sy0=v0*sourceH;
+        const sy1=v1*sourceH;
+        const dy0=v0*oldBox.h;
+        const dy1=v1*oldBox.h;
+        const bandH=Math.max(1,dy1-dy0);
+
+        // Maximum displacement at the center; zero at the page edges.
+        const mid=(v0+v1)*.5;
+        const bow=Math.sin(Math.PI*mid)*bowStrength;
+
+        ctx.drawImage(
+          oldImg,
+          0,sy0,
+          sourceW,Math.max(1,sy1-sy0),
+          0,dy0+bow,
+          oldBox.w,bandH
+        );
+      }
 
       ctx.restore();
 
