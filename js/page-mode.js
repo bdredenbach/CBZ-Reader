@@ -83,7 +83,7 @@ window.LongboxPageMode = (() => {
       host.style.width = "100%";
       host.style.height = "100%";
       host.style.overflow = "hidden";
-      host.style.zIndex = "50";
+      host.style.zIndex = "4";
       host.style.pointerEvents = "auto";
 
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
