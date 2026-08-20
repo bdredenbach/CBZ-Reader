@@ -45,6 +45,28 @@ const Reader = {
    this.els.helpDrawer = document.getElementById("help-drawer");
    this.nativePageTurn = new LongboxNativePageTurn(this);
 
+   // v59.23: real Turn.js takeover for Page mode.
+   this.turnPageMode = new LongboxPageMode({
+     getIssue: () => this.comic,
+     getPageUrl: (i) => this.getPageUrl(i),
+     getIndex: () => this.index,
+     setIndex: (i) => {
+       this.index = Math.max(0, Math.min(this.comic.pageCount - 1, i));
+       this.updateSliderLabel();
+       this.updateBookmarkFlag();
+       this.saveProgress();
+     },
+     onPageChanged: (i) => {
+       this.index = Math.max(0, Math.min(this.comic.pageCount - 1, i));
+       this.updateSliderLabel();
+       this.updateBookmarkFlag();
+       this.saveProgress();
+       this.loadPanelsForCurrentPage();
+     },
+     onState: (s) => this.debugLog(`Turn.js: ${s}`)
+   });
+   this.useTurnJSPageMode = true;
+
    document.getElementById("reader-back").addEventListener("click", () => this.close());
    document.getElementById("reader-bookmark").addEventListener("click", () => this.toggleBookmark());
    document.getElementById("reader-help").addEventListener("click", () => this.openHelpDrawer());
@@ -162,6 +184,18 @@ const Reader = {
  },
 
  async renderPaged() {
+    if (this.mode === "single" && this.useTurnJSPageMode && this.turnPageMode) {
+      const ok = await this.turnPageMode.render(this.els.viewport);
+      if (ok) {
+        this.prefetch();
+        this.loadPanelsForCurrentPage();
+        this.updateSliderLabel();
+        this.updateBookmarkFlag();
+        return;
+      }
+      this.debugLog("Turn.js Page Mode unavailable; using normal page renderer.");
+    }
+
    const indices = this.mode === "spread"
      ? [this.index, this.index + 1].filter(i => i < this.comic.pageCount)
      : [this.index];
@@ -550,6 +584,11 @@ const Reader = {
    if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
    const wasSpread = this.mode === "spread";
+
+   if (this.mode === "single" && mode !== "single" && this.turnPageMode) {
+     await this.turnPageMode.destroy();
+   }
+
    this.mode = mode;
    this.comic.readMode = mode;
    LongboxDB.updateComic(this.comic.id, { readMode: mode });
@@ -653,6 +692,12 @@ const Reader = {
 
  goTo(i, opts = {}) {
    i = Math.max(0, Math.min(this.comic.pageCount - 1, i));
+   if (this.mode === "single" && this.useTurnJSPageMode && this.turnPageMode?.book) {
+     if (i === this.index && !opts.fromSlider) return;
+     this.turnPageMode.goTo(i);
+     return;
+   }
+
    if (i === this.index && !opts.fromSlider) return;
    this.index = i;
    if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
@@ -668,6 +713,11 @@ const Reader = {
 
  next() {
    this.showChrome();
+   if (this.mode === "single" && this.useTurnJSPageMode && this.turnPageMode?.book && this.scale <= 1.02) {
+     this.turnPageMode.next();
+     return;
+   }
+
    if (this.mode === "single" && this.scale <= 1.02 && this.nativePageTurn) {
      this.nativePageTurn.turn("next").then(handled => {
        if (!handled && !this.nativePageTurn.running) this.goTo(this.index + 1);
@@ -680,6 +730,11 @@ const Reader = {
 
  prev() {
    this.showChrome();
+   if (this.mode === "single" && this.useTurnJSPageMode && this.turnPageMode?.book && this.scale <= 1.02) {
+     this.turnPageMode.prev();
+     return;
+   }
+
    if (this.mode === "single" && this.scale <= 1.02 && this.nativePageTurn) {
      this.nativePageTurn.turn("prev").then(handled => {
        if (!handled && !this.nativePageTurn.running) this.goTo(this.index - 1);
