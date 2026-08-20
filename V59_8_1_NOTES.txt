@@ -1,6 +1,0 @@
-v59.8.1 — Corrected Corner Geometry
-Base: exact known-good v59.5 archive.
-Removed v59.8's Bezier path and complex polygon integration for this test.
-Uses a consistent page-local coordinate system for fold point, rotation,
-clipping, and continuous image drawing.
-No external flip library.
