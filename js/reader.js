@@ -196,6 +196,9 @@ const Reader = {
       this.debugLog("Turn.js Page Mode unavailable; using normal page renderer.");
     }
 
+   // Restore the normal viewport display before non-Turn paged rendering.
+   this.els.viewport.style.display = "";
+
    const indices = this.mode === "spread"
      ? [this.index, this.index + 1].filter(i => i < this.comic.pageCount)
      : [this.index];
@@ -587,6 +590,8 @@ const Reader = {
 
    if (this.mode === "single" && mode !== "single" && this.turnPageMode) {
      await this.turnPageMode.destroy();
+     // Turn.js hides its shared host on destroy; other modes need it visible.
+     this.els.viewport.style.display = "";
    }
 
    this.mode = mode;
