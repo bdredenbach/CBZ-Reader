@@ -401,49 +401,6 @@ button {
   -webkit-user-drag: none;
   pointer-events: none;
 }
-
-/* ===== StPageFlip book (Page / single mode) ===== */
-.page-viewport.flip-mode {
-  display: block;
-  position: relative;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-.flip-book {
-  width: 100%;
-  height: 100%;
-  margin: 0 auto;
-  position: relative;
-}
-.flip-page,
-.stf__item,
-.stf__block {
-  background: #111;
-}
-.flip-page {
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  width: 100%;
-  height: 100%;
-  box-sizing: border-box;
-}
-.flip-page img {
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
-  object-fit: contain;
-  user-select: none;
-  -webkit-user-drag: none;
-  pointer-events: none;
-  display: block;
-}
-.reader-stage:has(.flip-book) {
-  overflow: hidden;
-}
 .mode-spread .page-viewport {
   gap: 2px;
 }
@@ -1025,3 +982,128 @@ button.reader-btn.mini-btn {
     margin-left: auto;
   }
 }
+
+
+/* v77 — isolated, conservative 3D page-turn layer */
+#page-viewport { perspective: 1400px; }
+.lb-pageflip-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 20;
+  transform-style: preserve-3d;
+}
+.lb-pageflip-under,
+.lb-pageflip-sheet {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+  backface-visibility: hidden;
+}
+.lb-pageflip-sheet {
+  z-index: 2;
+  transform-origin: left center;
+}
+.lb-pageflip-stage.turn-next .lb-pageflip-sheet {
+  animation: lb-turn-next 650ms cubic-bezier(.22,.61,.36,1) forwards;
+}
+.lb-pageflip-stage.turn-prev .lb-pageflip-sheet {
+  transform-origin: right center;
+  animation: lb-turn-prev 650ms cubic-bezier(.22,.61,.36,1) forwards;
+}
+@keyframes lb-turn-next {
+  from { transform: rotateY(0deg); }
+  to   { transform: rotateY(-180deg); }
+}
+@keyframes lb-turn-prev {
+  from { transform: rotateY(0deg); }
+  to   { transform: rotateY(180deg); }
+}
+
+
+/* v78 — StPageFlip experiment layered onto the clean v77 baseline */
+#page-viewport.page-mode-stf-host {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+  z-index: 15 !important;
+  perspective: 1400px;
+}
+.page-mode-stf-host .stf__parent,
+.page-mode-stf-host .stf__block {
+  width: 100% !important;
+  height: 100% !important;
+}
+.page-mode-stf-host .longbox-flip-page {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+.page-mode-stf-host .longbox-flip-page > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+
+
+/* v57 — isolated Turn.js Page Mode test. The normal reader remains intact. */
+#pageflip-book.pageflip-book {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 50 !important;
+  display: none;
+  overflow: hidden;
+  pointer-events: auto !important;
+  background: transparent;
+}
+.page-mode-underlay {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.longbox-turn-book {
+  position: absolute;
+  overflow: hidden;
+  background: transparent;
+  transform: translateZ(0);
+}
+.longbox-turn-page {
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+.longbox-turn-page img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+.longbox-turn-book .turn-page { background: transparent; }
+
+
+/* v81 — legacy Turn.js host compatibility — REMOVED (2026-08-18).
+   This block unconditionally forced #pageflip-book to display:block,
+   visibility:visible, and z-index:10 with !important on every property.
+   Because !important beats specificity regardless of selector, its
+   `display: block !important` overrode the v57 block's intended
+   `display: none` (not !important) on the more-specific
+   `#pageflip-book.pageflip-book` selector — so this invisible,
+   pointer-events:auto div sat full-screen above the reader chrome at all
+   times, silently swallowing every tap on the topbar/bottombar controls,
+   regardless of whether any page-flip mode was active. */
