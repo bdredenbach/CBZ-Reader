@@ -1,7 +1,7 @@
 // sw.js — caches the app shell so Longbox launches and runs fully offline.
 // Comic pages themselves live in IndexedDB (js/db.js), not here.
 
-const CACHE_NAME = "longbox-shell-v57";
+const CACHE_NAME = "longbox-shell-v59-10";
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -11,6 +11,7 @@ const SHELL_FILES = [
   "./js/library.js",
   "./js/panels.js",
   "./js/bubbles.js",
+  "./js/page-turn.js",
   "./js/reader.js",
   "./js/app.js",
   "./icons/icon-192.png",
