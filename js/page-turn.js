@@ -1,17 +1,10 @@
-/* Longbox Native Page Turn — v59.8 True Corner Geometry
+/* Longbox Native Page Turn — v59.8.1
+ * Corner Geometry, corrected coordinate system.
  *
- * Based on the known-good v59.5 reader/animation foundation.
- * Geometry concepts selectively recreated from public StPageFlip:
- * - corner-driven angle calculation
- * - rotated page rectangle
- * - boundary intersections
- * - polygon clipping of the turning page
- * - progress derived from the moving fold point
- *
- * Turn.js-inspired addition:
- * - cubic-Bezier corner path for a more natural release/settle.
- *
- * No external flip library is loaded.
+ * Base: known-good v59.5.
+ * One continuous canvas surface.
+ * Selective recreation of the corner/angle/clip concepts from StPageFlip.
+ * No external library.
  */
 window.LongboxNativePageTurn = class {
   constructor(reader) {
@@ -22,133 +15,49 @@ window.LongboxNativePageTurn = class {
 
   clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 
-  ease(t) {
-    return t < .5
-      ? 4*t*t*t
-      : 1-Math.pow(-2*t+2,3)/2;
+  ease(t){
+    return t < .5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
   }
 
-  bezier(p0,p1,p2,p3,t) {
-    const u=1-t, uu=u*u, tt=t*t;
+  angleFromCorner(pos,w,h){
+    const x=Math.max(1,w-pos.x);
+    const y=Math.max(0,pos.y);
+    const d=Math.sqrt(x*x+y*y);
+    let a=2*Math.acos(this.clamp(x/d,-1,1));
+    if(y<0) a=-a;
+    return this.clamp(a,-Math.PI*.985,Math.PI*.985);
+  }
+
+  rotatePoint(p,o,a){
     return {
-      x:uu*u*p0.x + 3*uu*t*p1.x + 3*u*tt*p2.x + tt*t*p3.x,
-      y:uu*u*p0.y + 3*uu*t*p1.y + 3*u*tt*p2.y + tt*t*p3.y
+      x:(p.x-o.x)*Math.cos(a)+(p.y-o.y)*Math.sin(a)+o.x,
+      y:(p.y-o.y)*Math.cos(a)-(p.x-o.x)*Math.sin(a)+o.y
     };
   }
 
-  rotatePoint(p, origin, angle) {
-    return {
-      x:p.x*Math.cos(angle)+p.y*Math.sin(angle)+origin.x,
-      y:p.y*Math.cos(angle)-p.x*Math.sin(angle)+origin.y
-    };
-  }
-
-  distance(a,b) {
-    return Math.hypot(b.x-a.x,b.y-a.y);
-  }
-
-  // Adapted geometry model: a moving corner point determines the page angle.
-  // The active corner is mirrored so "next" feels like grabbing the
-  // top-right/bottom-right corner of the visible comic page.
-  calculateAngle(pos, corner, w, h) {
-    const left = corner.right ? (w-pos.x+1) : (pos.x+1);
-    const top = corner.bottom ? (h-pos.y) : pos.y;
-    let angle = 2*Math.acos(this.clamp(left/Math.sqrt(top*top+left*left),-1,1));
-    if(top<0) angle=-angle;
-    if(corner.bottom) angle=-angle;
-    return this.clamp(angle,-Math.PI*.985,Math.PI*.985);
-  }
-
-  rotatedRect(pos, angle, w, h, corner) {
-    let pts;
-    if(corner.bottom) {
-      pts=[
-        {x:0,y:-h},{x:w,y:-h},
-        {x:0,y:0},{x:w,y:0}
-      ];
-    } else {
-      pts=[
-        {x:0,y:0},{x:w,y:0},
-        {x:0,y:h},{x:w,y:h}
-      ];
-    }
-    return {
-      topLeft:this.rotatePoint(pts[0],pos,angle),
-      topRight:this.rotatePoint(pts[1],pos,angle),
-      bottomLeft:this.rotatePoint(pts[2],pos,angle),
-      bottomRight:this.rotatePoint(pts[3],pos,angle)
-    };
-  }
-
-  lineIntersection(a,b,c,d) {
-    const A1=a.y-b.y, A2=c.y-d.y;
-    const B1=b.x-a.x, B2=d.x-c.x;
-    const C1=a.x*b.y-b.x*a.y;
-    const C2=c.x*d.y-d.x*c.y;
-    const den=A1*B2-A2*B1;
+  // Intersect an infinite fold line with a page boundary.
+  lineIntersection(a,b,c,d){
+    const den=(a.x-b.x)*(c.y-d.y)-(a.y-b.y)*(c.x-d.x);
     if(Math.abs(den)<1e-7)return null;
-    const x=-((C1*B2-C2*B1)/den);
-    const y=-((A1*C2-A2*C1)/den);
-    return Number.isFinite(x)&&Number.isFinite(y)?{x,y}:null;
+    const t=((a.x-c.x)*(c.y-d.y)-(a.y-c.y)*(c.x-d.x))/den;
+    return {x:a.x+t*(b.x-a.x),y:a.y+t*(b.y-a.y)};
   }
 
-  inRect(p,w,h) {
-    return p && p.x>=-1 && p.x<=w+1 && p.y>=-1 && p.y<=h+1 ? p : null;
+  boundaryPoint(p,q,w,h,edge){
+    const bounds={
+      top:[{x:0,y:0},{x:w,y:0}],
+      right:[{x:w,y:0},{x:w,y:h}],
+      bottom:[{x:w,y:h},{x:0,y:h}],
+      left:[{x:0,y:h},{x:0,y:0}]
+    };
+    const hit=this.lineIntersection(p,q,bounds[edge][0],bounds[edge][1]);
+    if(!hit)return null;
+    const eps=.5;
+    if(hit.x < -eps || hit.x > w+eps || hit.y < -eps || hit.y > h+eps) return null;
+    return {x:this.clamp(hit.x,0,w),y:this.clamp(hit.y,0,h)};
   }
 
-  intersect(a,b,c,d,w,h) {
-    return this.inRect(this.lineIntersection(a,b,c,d),w,h);
-  }
-
-  intersections(pos,rect,w,h,corner) {
-    let top=null, side=null, bottom=null;
-    if(!corner.bottom) {
-      top=this.intersect(
-        pos,rect.topRight,{x:0,y:0},{x:w,y:0},w,h
-      );
-      side=this.intersect(
-        pos,rect.bottomLeft,{x:w,y:0},{x:w,y:h},w,h
-      );
-      bottom=this.intersect(
-        rect.bottomLeft,rect.bottomRight,{x:0,y:h},{x:w,y:h},w,h
-      );
-    } else {
-      top=this.intersect(
-        rect.topLeft,rect.topRight,{x:0,y:0},{x:w,y:0},w,h
-      );
-      side=this.intersect(
-        pos,rect.topLeft,{x:w,y:0},{x:w,y:h},w,h
-      );
-      bottom=this.intersect(
-        rect.bottomLeft,rect.bottomRight,{x:0,y:h},{x:w,y:h},w,h
-      );
-    }
-    return {top,side,bottom};
-  }
-
-  flipClip(rect, ints, w, h, corner) {
-    const out=[];
-    if(!corner.bottom) {
-      out.push(rect.topLeft);
-      if(ints.top)out.push(ints.top);
-      if(ints.side)out.push(ints.side);
-      if(ints.bottom)out.push(ints.bottom);
-      if(!ints.side || corner.bottom)out.push(rect.bottomLeft);
-    } else {
-      out.push(rect.bottomLeft);
-      if(ints.bottom)out.push(ints.bottom);
-      if(ints.side)out.push(ints.side);
-      if(ints.top)out.push(ints.top);
-      if(!ints.side)out.push(rect.topLeft);
-    }
-    return out.filter(Boolean);
-  }
-
-  pointInCanvas(p, w, h) {
-    return {x:this.clamp(p.x,0,w), y:this.clamp(p.y,0,h)};
-  }
-
-  async loadImage(url) {
+  async loadImage(url){
     return await new Promise((resolve,reject)=>{
       const img=new Image();
       img.decoding="async";
@@ -158,7 +67,7 @@ window.LongboxNativePageTurn = class {
     });
   }
 
-  async turn(direction) {
+  async turn(direction){
     if(this.running)return false;
     const r=this.reader;
     if(!r.comic || r.mode!=="single" || r.scale>1.02)return false;
@@ -183,13 +92,21 @@ window.LongboxNativePageTurn = class {
       this.loadImage(oldUrl),this.loadImage(newUrl)
     ]);
 
+    const fit=img=>{
+      const s=Math.min(rect.width/img.naturalWidth,rect.height/img.naturalHeight);
+      const w=img.naturalWidth*s,h=img.naturalHeight*s;
+      return {x:(rect.width-w)/2,y:(rect.height-h)/2,w,h};
+    };
+    const oldBox=fit(oldImg),newBox=fit(newImg);
+    const W=oldBox.w,H=oldBox.h;
+
     const layer=document.createElement("div");
-    layer.className=`native-geometry59-8 ${direction}`;
+    layer.className=`native-geometry59-8-1 ${direction}`;
     const canvas=document.createElement("canvas");
     const dpr=Math.min(window.devicePixelRatio||1,2);
     canvas.width=Math.round(rect.width*dpr);
     canvas.height=Math.round(rect.height*dpr);
-    canvas.className="native-geometry59-8-canvas";
+    canvas.className="native-geometry59-8-1-canvas";
     layer.appendChild(canvas);
     r.els.viewport.appendChild(layer);
     current.style.visibility="hidden";
@@ -199,37 +116,8 @@ window.LongboxNativePageTurn = class {
     ctx.imageSmoothingEnabled=true;
     ctx.imageSmoothingQuality="high";
 
-    const fit=(img)=>{
-      const s=Math.min(rect.width/img.naturalWidth,rect.height/img.naturalHeight);
-      const w=img.naturalWidth*s,h=img.naturalHeight*s;
-      return {x:(rect.width-w)/2,y:(rect.height-h)/2,w,h};
-    };
-    const oldFit=fit(oldImg),newFit=fit(newImg);
-
-    // Work in the fitted page's local coordinates.
-    const W=oldFit.w,H=oldFit.h;
-    const left=oldFit.x,top=oldFit.y;
-    const forward=direction==="next";
-    const corner={right:forward,bottom:false};
-
-    // A gentle diagonal corner path: this is the "grab" rather than a fixed
-    // rotateY. It deliberately stays inside the page so the geometry remains
-    // stable while still introducing the up/down motion.
-    const start=forward
-      ? {x:W*.985,y:H*.035}
-      : {x:W*.015,y:H*.035};
-    const c1=forward
-      ? {x:W*.91,y:H*.11}
-      : {x:W*.09,y:H*.11};
-    const c2=forward
-      ? {x:W*.57,y:H*.58}
-      : {x:W*.43,y:H*.58};
-    const end=forward
-      ? {x:W*.015,y:H*.49}
-      : {x:W*.985,y:H*.49};
-
+    const start=performance.now();
     let ended=false;
-    const started=performance.now();
 
     const finish=async()=>{
       if(ended)return;
@@ -243,69 +131,83 @@ window.LongboxNativePageTurn = class {
       try{await r.render();}finally{this.running=false;}
     };
 
-    const drawImageFitted=(img,box)=>{
-      ctx.drawImage(img,box.x,box.y,box.w,box.h);
+    const drawNew=()=>{
+      ctx.drawImage(newImg,newBox.x,newBox.y,newBox.w,newBox.h);
     };
 
-    const frame=(now)=>{
+    const frame=now=>{
       if(ended)return;
-      const raw=Math.min(1,(now-started)/this.duration);
+      const raw=Math.min(1,(now-start)/this.duration);
       const t=this.ease(raw);
-      const posLocal=this.bezier(start,c1,c2,end,t);
+      const forward=direction==="next";
 
-      // Mirror geometry for backward.
-      const pos={
-        x:left+posLocal.x,
-        y:top+posLocal.y
+      // Active top corner moves diagonally, but this test uses only the
+      // resulting geometry; no extra Bezier/furl math is introduced.
+      const p={
+        x: forward ? W*(1-.965*t) : W*(.035+.965*t),
+        y: H*(.035+.50*Math.sin(Math.PI*t))
       };
 
+      // Mirror the local page for previous-page turns.
+      const localP=forward ? p : {x:W-p.x,y:p.y};
+      const angle=this.angleFromCorner(localP,W,H);
+
       ctx.clearRect(0,0,rect.width,rect.height);
+      drawNew();
 
-      // Bottom/next page.
-      drawImageFitted(newImg,newFit);
+      /*
+       * Reference-style coordinate system:
+       * 1. Move origin to the fold point.
+       * 2. Build the page's transformed boundary around that point.
+       * 3. Clip in that same local coordinate space.
+       * 4. Rotate the page.
+       * 5. Draw the continuous image once.
+       *
+       * This avoids mixing viewport coordinates with page-local polygons.
+       */
+      const foldX=oldBox.x+localP.x;
+      const foldY=oldBox.y+localP.y;
 
-      // Convert the corner point into page-local coordinates.
-      const localPos={x:pos.x-left,y:pos.y-top};
-      const angle=this.calculateAngle(localPos,corner,W,H);
-      const rotated=this.rotatedRect(localPos,angle,W,H,corner);
-      const ints=this.intersections(localPos,rotated,W,H,corner);
-      const poly=this.flipClip(rotated,ints,W,H,corner);
-
-      // Draw the old page clipped to the exact polygon calculated from the
-      // transformed corners. This is the key v59.8 change: no strip mesh.
       ctx.save();
-      ctx.translate(left,top);
-      ctx.beginPath();
-      if(poly.length){
-        ctx.moveTo(poly[0].x,poly[0].y);
-        for(let i=1;i<poly.length;i++)ctx.lineTo(poly[i].x,poly[i].y);
-        ctx.closePath();
-        ctx.clip();
-      }
+      ctx.translate(foldX,foldY);
+      ctx.rotate(forward ? angle : -angle);
 
-      ctx.translate(localPos.x,localPos.y);
-      ctx.rotate(angle);
-      ctx.drawImage(oldImg,0,corner.bottom?-H:0,W,H);
+      // The visible turning half is clipped against a moving fold boundary.
+      ctx.beginPath();
+      if(forward){
+        ctx.moveTo(0,-H);
+        ctx.lineTo(W,-H);
+        ctx.lineTo(W,H);
+        ctx.lineTo(0,H);
+        ctx.closePath();
+      }else{
+        ctx.moveTo(-W,-H);
+        ctx.lineTo(0,-H);
+        ctx.lineTo(0,H);
+        ctx.lineTo(-W,H);
+        ctx.closePath();
+      }
+      ctx.clip();
+
+      ctx.translate(forward ? 0 : -W,0);
+      ctx.drawImage(oldImg,0,0,W,H);
       ctx.restore();
 
-      // Local fold shadow based on the actual intersection points.
-      const shadowStart=ints.side||ints.top||ints.bottom;
-      if(shadowStart){
-        const sx=left+shadowStart.x, sy=top+shadowStart.y;
-        const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,Math.max(55,W*.18));
-        grad.addColorStop(0,"rgba(0,0,0,.24)");
-        grad.addColorStop(.35,"rgba(0,0,0,.10)");
-        grad.addColorStop(1,"rgba(0,0,0,0)");
-        ctx.fillStyle=grad;
-        ctx.fillRect(0,0,rect.width,rect.height);
-      }
+      // Fold shadow stays tied to the actual fold point, not a separate
+      // artificial vertical stripe.
+      const shadow=ctx.createRadialGradient(foldX,foldY,0,foldX,foldY,Math.max(45,W*.16));
+      shadow.addColorStop(0,"rgba(0,0,0,.18)");
+      shadow.addColorStop(.32,"rgba(0,0,0,.07)");
+      shadow.addColorStop(1,"rgba(0,0,0,0)");
+      ctx.fillStyle=shadow;
+      ctx.fillRect(0,0,rect.width,rect.height);
 
       if(raw<1)requestAnimationFrame(frame);
       else finish();
     };
 
     requestAnimationFrame(frame);
-    setTimeout(()=>{if(!ended)finish();},this.duration+500);
+    setTimeout(()=>{if(!ended)finish();},this.duration+450);
     return true;
   }
 };
