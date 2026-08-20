@@ -1376,17 +1376,16 @@ button.reader-btn.mini-btn {
 }
 
 
-/* v59.7 — Continuous Sheet */
-.native-continuous-turn {
+/* v59.8 — True Corner Geometry */
+.native-geometry59-8 {
   position:absolute;
   inset:0;
   z-index:4;
   overflow:hidden;
   pointer-events:none;
   background:transparent;
-  transform-style:preserve-3d;
 }
-.native-continuous-canvas {
+.native-geometry59-8-canvas {
   position:absolute;
   inset:0;
   width:100%;
@@ -1394,5 +1393,4 @@ button.reader-btn.mini-btn {
   display:block;
   pointer-events:none;
   user-select:none;
-  backface-visibility:hidden;
 }
