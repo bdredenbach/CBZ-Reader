@@ -181,10 +181,10 @@ window.LongboxNativePageTurn = class {
         furlPhase *
         Math.pow(cornerProximity,.65);
 
-      motion.yaw += (forward?-1:1) * .075 * furlStrength;
-      motion.pitch += (forward?-1:1) * .035 * furlStrength;
+      motion.yaw += (forward?-1:1) * .19 * furlStrength;
+      motion.pitch += (forward?-1:1) * .085 * furlStrength;
       motion.depth += Math.min(oldBox.w,oldBox.h) *
-        .006 * furlStrength;
+        .015 * furlStrength;
 
       ctx.clearRect(0,0,rect.width,rect.height);
 
