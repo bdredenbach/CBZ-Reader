@@ -1,7 +1,0 @@
-v59.9 — Continuous True Fold
-Base: exact known-good v59.5 archive.
-Rendering: one canvas surface.
-Adds a corner-defined fold axis and separates the old page into
-stationary and folded regions. The folded region is rendered as a
-continuous canvas mesh with overlapping neighbors to suppress seams.
-No external flip library.
