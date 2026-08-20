@@ -1376,6 +1376,43 @@ button.reader-btn.mini-btn {
 }
 
 
+
+/* v59.5 — Moving Fold Line */
+.native-moving-fold {
+  position:absolute; inset:0; z-index:4; overflow:hidden;
+  pointer-events:none; transform-style:preserve-3d;
+  perspective:2300px; background:transparent;
+}
+.native-moving-fold-under {
+  position:absolute; inset:0; width:100%; height:100%;
+  object-fit:contain; display:block; pointer-events:none;
+}
+.native-moving-fold-piece {
+  position:absolute; top:0; bottom:0;
+  left:calc(var(--i) * (100% / var(--n)));
+  width:calc(100% / var(--n)); overflow:hidden;
+  transform-origin:center center;
+  transform-style:preserve-3d;
+  backface-visibility:hidden;
+  pointer-events:none;
+  will-change:transform,filter;
+  transform:
+    translate3d(0,var(--lift),var(--depth))
+    rotateX(var(--pitch))
+    rotateY(var(--angle));
+  filter:brightness(calc(1 - var(--shade)));
+}
+.native-moving-fold.prev .native-moving-fold-piece {
+  right:calc(var(--i) * (100% / var(--n)));
+  left:auto;
+}
+.native-moving-fold-piece img {
+  position:absolute; top:0; left:calc(var(--i) * -100%);
+  width:calc(var(--n) * 100%); max-width:none; height:100%;
+  object-fit:contain; display:block; pointer-events:none;
+  user-select:none; -webkit-user-drag:none;
+}
+
 /* v59.6 — Corner Furl Refinement */
 .native-moving-fold.v596 .native-moving-fold-piece {
   transition:none;
@@ -1438,3 +1475,4 @@ button.reader-btn.mini-btn {
   80%{opacity:.10;transform:translateX(-110%)}
   100%{opacity:0;transform:translateX(-165%)}
 }
+
