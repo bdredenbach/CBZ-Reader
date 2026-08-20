@@ -1376,8 +1376,8 @@ button.reader-btn.mini-btn {
 }
 
 
-/* v59.8 — True Corner Geometry */
-.native-geometry59-8 {
+/* v59.8.1 — Corrected Corner Geometry */
+.native-geometry59-8-1 {
   position:absolute;
   inset:0;
   z-index:4;
@@ -1385,7 +1385,7 @@ button.reader-btn.mini-btn {
   pointer-events:none;
   background:transparent;
 }
-.native-geometry59-8-canvas {
+.native-geometry59-8-1-canvas {
   position:absolute;
   inset:0;
   width:100%;
