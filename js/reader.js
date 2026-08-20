@@ -1,4 +1,4 @@
-// reader.js — the reading experience: paging, zoom/pan, modes, themes
+﻿// reader.js — the reading experience: paging, zoom/pan, modes, themes
 
 const PANEL_ZOOM_KEY = "longbox_panel_zoom_enabled";
 const BUBBLE_ZOOM_KEY = "longbox_bubble_zoom_enabled";
@@ -28,6 +28,11 @@ const Reader = {
  focusAnimationTimer: null,
  _panelLoadToken: 0,      // guards against a slow detection landing on the wrong page
 
+ pageFlip: null,           // StPageFlip instance for single (Page) mode
+ _flipBookEl: null,
+ _flipSyncing: false,      // true while we are programmatically changing pageFlip page
+ _flipResizeObserver: null,
+
  els: {},
 
  init() {
@@ -43,7 +48,6 @@ const Reader = {
    this.els.bubbleToggle = document.getElementById("bubble-zoom-toggle");
    this.els.debugPanel = document.getElementById("debug-panel");
    this.els.helpDrawer = document.getElementById("help-drawer");
-   this.nativePageTurn = new LongboxNativePageTurn(this);
 
    document.getElementById("reader-back").addEventListener("click", () => this.close());
    document.getElementById("reader-bookmark").addEventListener("click", () => this.toggleBookmark());
@@ -129,6 +133,7 @@ const Reader = {
 
  close() {
    this.saveProgress();
+   this.destroyPageFlip();
    this.revokeAll();
    window.LongboxApp.closeReader();
  },
@@ -152,8 +157,12 @@ const Reader = {
  async render() {
    this.resetZoom({ animate: false });
    if (this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic") {
+     this.destroyPageFlip();
      await this.renderContinuous();
+   } else if (this.mode === "single") {
+     await this.renderFlipBook();
    } else {
+     this.destroyPageFlip();
      await this.renderPaged();
    }
    this.updateSliderLabel();
@@ -162,13 +171,14 @@ const Reader = {
  },
 
  async renderPaged() {
+   // Used for spread mode (and as fallback). Single mode uses renderFlipBook.
    const indices = this.mode === "spread"
      ? [this.index, this.index + 1].filter(i => i < this.comic.pageCount)
      : [this.index];
 
    this.els.viewport.innerHTML = "";
+   this.els.viewport.style.transform = "";
    const urls = await Promise.all(indices.map(i => this.getPageUrl(i)));
-   const imgs = [];
 
    for (const url of urls) {
      if (!url) continue;
@@ -176,11 +186,166 @@ const Reader = {
      img.src = url;
      img.draggable = false;
      this.els.viewport.appendChild(img);
-     imgs.push(img);
    }
 
    this.prefetch();
    this.loadPanelsForCurrentPage();
+ },
+
+ destroyPageFlip() {
+   if (this._flipResizeObserver) {
+     try { this._flipResizeObserver.disconnect(); } catch (_) {}
+     this._flipResizeObserver = null;
+   }
+   if (this.pageFlip) {
+     try {
+       this.pageFlip.off("flip");
+       this.pageFlip.off("changeState");
+       this.pageFlip.destroy();
+     } catch (_) {}
+     this.pageFlip = null;
+   }
+   this._flipBookEl = null;
+   this._flipSyncing = false;
+ },
+
+ async renderFlipBook() {
+   // Realistic book page-turn for "Page" (single) mode via StPageFlip.
+   if (typeof St === "undefined" || !St.PageFlip) {
+     console.warn("page-flip library not loaded; falling back to static page");
+     this.destroyPageFlip();
+     await this.renderPaged();
+     return;
+   }
+
+   const stage = this.els.stage;
+   const viewport = this.els.viewport;
+   const pageCount = this.comic.pageCount;
+   if (!pageCount) return;
+
+   // Re-use existing instance when possible (just turn to the right page)
+   if (this.pageFlip && this._flipBookEl && this._flipBookEl.isConnected) {
+     this.els.viewport.classList.add("flip-mode");
+     const current = this.pageFlip.getCurrentPageIndex();
+     if (current !== this.index) {
+       this._flipSyncing = true;
+       try {
+         this.pageFlip.turnToPage(this.index);
+       } catch (_) {}
+       this._flipSyncing = false;
+     }
+     this.ensureFlipImagesLoaded(this.index);
+     this.loadPanelsForCurrentPage();
+     try { this.pageFlip.update(); } catch (_) {}
+     return;
+   }
+
+   this.destroyPageFlip();
+   viewport.innerHTML = "";
+   viewport.style.transform = "";
+   viewport.classList.add("flip-mode");
+
+   const book = document.createElement("div");
+   book.id = "flip-book";
+   book.className = "flip-book";
+   viewport.appendChild(book);
+   this._flipBookEl = book;
+
+   // Create one HTML page per comic page. Images load lazily near the current index.
+   const pages = [];
+   for (let i = 0; i < pageCount; i++) {
+     const page = document.createElement("div");
+     page.className = "flip-page";
+     page.dataset.index = i;
+     const img = document.createElement("img");
+     img.draggable = false;
+     img.alt = `Page ${i + 1}`;
+     img.dataset.pageIndex = i;
+     page.appendChild(img);
+     book.appendChild(page);
+     pages.push(page);
+   }
+
+   // Measure stage for base size (required by the library)
+   const stageW = Math.max(200, stage.clientWidth || 400);
+   const stageH = Math.max(280, stage.clientHeight || 600);
+   // Prefer portrait page proportions; library will stretch
+   const baseW = Math.min(stageW, Math.round(stageH * 0.7));
+   const baseH = Math.round(baseW * 1.4);
+
+   const pageFlip = new St.PageFlip(book, {
+     width: baseW,
+     height: baseH,
+     size: "stretch",
+     minWidth: 200,
+     maxWidth: stageW,
+     minHeight: 280,
+     maxHeight: stageH,
+     drawShadow: true,
+     maxShadowOpacity: 0.45,
+     showCover: false,
+     mobileScrollSupport: false,
+     swipeDistance: 30,
+     clickEventForward: true,
+     usePortrait: true,
+     startPage: this.index,
+     flippingTime: 700,
+     useMouseEvents: true,
+     autoSize: true,
+     showPageCorners: true,
+     disableFlipByClick: false
+   });
+
+   pageFlip.loadFromHTML(pages);
+
+   pageFlip.on("flip", (e) => {
+     if (this._flipSyncing) return;
+     const newIndex = e.data;
+     if (typeof newIndex === "number" && newIndex !== this.index) {
+       this.index = newIndex;
+       this.updateSliderLabel();
+       this.updateBookmarkFlag();
+       this.saveProgress();
+       this.ensureFlipImagesLoaded(newIndex);
+       this.loadPanelsForCurrentPage();
+       this.showChrome();
+     }
+   });
+
+   this.pageFlip = pageFlip;
+
+   // Load images around the starting page, then a bit more in background
+   await this.ensureFlipImagesLoaded(this.index);
+   this.prefetch();
+   this.loadPanelsForCurrentPage();
+
+   // Keep book sized to the stage
+   if (typeof ResizeObserver !== "undefined") {
+     this._flipResizeObserver = new ResizeObserver(() => {
+       if (this.pageFlip && this.mode === "single") {
+         try { this.pageFlip.update(); } catch (_) {}
+       }
+     });
+     this._flipResizeObserver.observe(stage);
+   }
+ },
+
+ async ensureFlipImagesLoaded(centerIndex) {
+   if (!this._flipBookEl || !this.comic) return;
+   const radius = 3;
+   const start = Math.max(0, centerIndex - radius);
+   const end = Math.min(this.comic.pageCount - 1, centerIndex + radius);
+   const tasks = [];
+   for (let i = start; i <= end; i++) {
+     const img = this._flipBookEl.querySelector(`img[data-page-index="${i}"]`);
+     if (!img || img.src) continue;
+     tasks.push(
+       this.getPageUrl(i).then((url) => {
+         if (url && img && !img.src) img.src = url;
+       })
+     );
+   }
+   await Promise.all(tasks);
  },
 
  async stabilizeContinuousLayout() {
@@ -548,6 +713,7 @@ const Reader = {
    if (mode === this.mode) return;
    this.debugLog(`setMode: ${this.mode} -> ${mode}`);
    if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
+   if (mode !== "single") this.destroyPageFlip();
 
    const wasSpread = this.mode === "spread";
    this.mode = mode;
@@ -661,6 +827,27 @@ const Reader = {
      this.updateSliderLabel();
      this.updateBookmarkFlag();
      this.saveProgress();
+   } else if (this.mode === "single" && this.pageFlip) {
+     this._flipSyncing = true;
+     try {
+       // Slider / direct jump: no animation for large jumps, animated for neighbours
+       const cur = this.pageFlip.getCurrentPageIndex();
+       if (opts.fromSlider || Math.abs(i - cur) > 1) {
+         this.pageFlip.turnToPage(i);
+       } else if (i > cur) {
+         this.pageFlip.flipNext();
+       } else {
+         this.pageFlip.flipPrev();
+       }
+     } catch (_) {
+       this.render();
+     }
+     this._flipSyncing = false;
+     this.ensureFlipImagesLoaded(i);
+     this.updateSliderLabel();
+     this.updateBookmarkFlag();
+     this.saveProgress();
+     this.loadPanelsForCurrentPage();
    } else {
      this.render();
    }
@@ -668,10 +855,14 @@ const Reader = {
 
  next() {
    this.showChrome();
-   if (this.mode === "single" && this.scale <= 1.02 && this.nativePageTurn) {
-     this.nativePageTurn.turn("next").then(handled => {
-       if (!handled && !this.nativePageTurn.running) this.goTo(this.index + 1);
-     });
+   if (this.mode === "single" && this.pageFlip) {
+     if (this.index >= this.comic.pageCount - 1) return;
+     this._flipSyncing = false; // allow flip event to update index
+     try {
+       this.pageFlip.flipNext();
+     } catch (_) {
+       this.goTo(this.index + 1);
+     }
      return;
    }
    const step = this.mode === "spread" ? 2 : 1;
@@ -680,10 +871,14 @@ const Reader = {
 
  prev() {
    this.showChrome();
-   if (this.mode === "single" && this.scale <= 1.02 && this.nativePageTurn) {
-     this.nativePageTurn.turn("prev").then(handled => {
-       if (!handled && !this.nativePageTurn.running) this.goTo(this.index - 1);
-     });
+   if (this.mode === "single" && this.pageFlip) {
+     if (this.index <= 0) return;
+     this._flipSyncing = false;
+     try {
+       this.pageFlip.flipPrev();
+     } catch (_) {
+       this.goTo(this.index - 1);
+     }
      return;
    }
    const step = this.mode === "spread" ? 2 : 1;
@@ -941,7 +1136,10 @@ const Reader = {
        }
        return;
      }
-     e.preventDefault();
+     // When the flip book is active and not zoomed, let StPageFlip receive the
+     // touch so the realistic page-turn gesture works. Still track for long-press.
+     const flipOwnsTouch = this.mode === "single" && this.pageFlip && this.scale <= 1.02;
+     if (!flipOwnsTouch) e.preventDefault();
      touches = Array.from(e.touches);
      dragMoved = false;
      if (touches.length === 2) {
@@ -950,6 +1148,7 @@ const Reader = {
          clearTimeout(holdTimer); holdTimer = null;
          return;
        }
+       e.preventDefault();
        pinchStartDist = Math.max(1, dist(touches[0], touches[1]));
        pinchStartScale = this.scale;
        pinchStartMid = mid(touches[0], touches[1]);
@@ -1091,7 +1290,8 @@ const Reader = {
        if (this.scale <= 1.02) {
          this.scale = 1;
          this.constrainPan();
-         if (panStart) {
+         // When StPageFlip is active it owns swipe-to-turn; skip custom swipe
+         if (panStart && !(this.mode === "single" && this.pageFlip)) {
            const dx = endTouch.clientX - panStart.x;
            const dy = endTouch.clientY - panStart.y;
            if (!this.focusMode && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
@@ -1165,7 +1365,7 @@ const Reader = {
      if (this.mode === "scroll") return;
      if (mouseDown && !mouseMoved) {
        this.handleSingleTap({ x: e.clientX, y: e.clientY });
-     } else if (mouseDown && mouseMoved && this.scale <= 1.02) {
+     } else if (mouseDown && mouseMoved && this.scale <= 1.02 && !(this.mode === "single" && this.pageFlip)) {
        const dx = e.clientX - mStart.x, dy = e.clientY - mStart.y;
        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
          if (dx < 0) this.next(); else this.prev();
