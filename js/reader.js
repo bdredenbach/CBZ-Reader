@@ -94,7 +94,7 @@ const Reader = {
    const settleSpread = () => {
      if (this.mode !== "spread") return;
      clearTimeout(spreadTimer);
-     spreadTimer = setTimeout(() => this.stabilizeSpreadLayout(), 100);
+     spreadTimer = setTimeout(() => this.stabilizeSpreadLayout(), 500);
    };
    window.addEventListener("resize", settleSpread, { passive: true });
    window.addEventListener("orientationchange", settleSpread, { passive: true });
