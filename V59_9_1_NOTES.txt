@@ -1,0 +1,8 @@
+v59.9.1 — Tight Crease
+Base: v59.9 Continuous True Fold.
+Surgical geometry refinement only:
+- reduced fold depth
+- reduced reflection offset
+- tighter deformation around the crease
+- softer crease shadow
+No architecture or timing changes.
