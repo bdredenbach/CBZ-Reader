@@ -307,6 +307,46 @@ window.LongboxNativePageTurn = class {
       ctx.restore();
 
       /*
+       * v59.19 — Page Edge.
+       *
+       * A very thin, soft highlight follows the physical leading edge of the
+       * turning sheet. It is localized to the outer edge and fades as the
+       * page becomes flat. This is lighting only; geometry is unchanged.
+       */
+      const edgeProgress=Math.sin(Math.PI*t);
+      if(edgeProgress>.001){
+        const edgeX=forward
+          ? oldBox.x+oldBox.w*(1-.94*t)
+          : oldBox.x+oldBox.w*.94*t;
+
+        const edgeY=oldBox.y+corner.y;
+        const edgeWidth=
+          Math.max(1.5,Math.min(5.0,oldBox.w*.006));
+
+        const edgeGradient=ctx.createLinearGradient(
+          edgeX-edgeWidth,edgeY,
+          edgeX+edgeWidth,edgeY
+        );
+
+        const edgeAlpha=.08*edgeProgress;
+        edgeGradient.addColorStop(0,"rgba(255,255,255,0)");
+        edgeGradient.addColorStop(.50,`rgba(255,255,255,${edgeAlpha})`);
+        edgeGradient.addColorStop(.72,`rgba(255,255,255,${edgeAlpha*.35})`);
+        edgeGradient.addColorStop(1,"rgba(255,255,255,0)");
+
+        ctx.save();
+        ctx.globalCompositeOperation="screen";
+        ctx.fillStyle=edgeGradient;
+        ctx.fillRect(
+          edgeX-edgeWidth,
+          oldBox.y,
+          edgeWidth*2,
+          oldBox.h
+        );
+        ctx.restore();
+      }
+
+      /*
        * v59.18 — Dynamic Fold Shadow.
        *
        * Lighting follows the current corner/fold position instead of being
