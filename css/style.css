@@ -1394,4 +1394,5 @@ button.reader-btn.mini-btn {
   display:block;
   pointer-events:none;
   user-select:none;
+  backface-visibility:hidden;
 }
