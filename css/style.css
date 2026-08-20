@@ -1376,47 +1376,22 @@ button.reader-btn.mini-btn {
 }
 
 
-/* v59.10 — Known Flip + v59.5 Geometry Hybrid */
-.native-knownflip-hybrid {
+/* v59.11 — Corner-Driven Known Flip */
+.native-corner-known59-11 {
   position:absolute;
   inset:0;
-  z-index:20;
+  z-index:4;
   overflow:hidden;
   pointer-events:none;
-  perspective:1400px;
-  transform-style:preserve-3d;
   background:transparent;
+  perspective:1800px;
 }
-.native-knownflip-under,
-.native-knownflip-sheet {
+.native-corner-known59-11-canvas {
   position:absolute;
   inset:0;
   width:100%;
   height:100%;
-  object-fit:contain;
   display:block;
   pointer-events:none;
   user-select:none;
-  -webkit-user-drag:none;
-  backface-visibility:hidden;
-  transform-style:preserve-3d;
-}
-.native-knownflip-under { z-index:1; }
-.native-knownflip-sheet {
-  z-index:2;
-  will-change:transform,filter;
-}
-.native-knownflip-hybrid::after {
-  content:"";
-  position:absolute;
-  inset:0;
-  z-index:3;
-  pointer-events:none;
-  opacity:var(--flip-shadow,0);
-  background:radial-gradient(
-    ellipse at center,
-    rgba(0,0,0,.18) 0%,
-    rgba(0,0,0,.05) 34%,
-    rgba(0,0,0,0) 72%
-  );
 }
