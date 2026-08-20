@@ -139,6 +139,7 @@ window.LongboxPageMode = (() => {
           gradients: true,
           acceleration: true,
           elevation: 0.05,
+          middleGrab: true,
           duration: 600,
           direction: "ltr",
           pages: 1,
