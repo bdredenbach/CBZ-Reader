@@ -1395,3 +1395,9 @@ button.reader-btn.mini-btn {
   pointer-events:none;
   user-select:none;
 }
+
+/* v59.24: Turn.js page layer stays above tap zones but below reader chrome.
+   The page remains touchable while the visible controls stay clickable. */
+.reader-stage .longbox-turn-host {
+  z-index: 4 !important;
+}
