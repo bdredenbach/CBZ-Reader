@@ -106,10 +106,14 @@ window.LongboxNativePageTurn = class {
       const turning=forward ? d<0 : d>0;
       if(!turning)continue;
 
-      const foldWeight=this.clamp(Math.abs(d)/(W*.62),0,1);
-      const curl=Math.sin(Math.PI*foldWeight)*Math.sin(Math.PI*t);
-      const depth=62*curl;
-      const lift=(axisPoint.y-(box.y+H/2))*0.10*curl;
+      const foldWeight=this.clamp(Math.abs(d)/(W*.78),0,1);
+      // Tight crease: strongest deformation immediately around the fold,
+      // then a restrained falloff across the folded sheet.
+      const nearCrease=Math.exp(-Math.pow(Math.abs(d)/(W*.22),2));
+      const curl=(0.35 + 0.65*nearCrease) *
+                 Math.sin(Math.PI*foldWeight) * Math.sin(Math.PI*t);
+      const depth=34*curl;
+      const lift=(axisPoint.y-(box.y+H/2))*0.055*curl;
 
       const transformPoint=(p)=>{
         const local={
@@ -117,7 +121,7 @@ window.LongboxNativePageTurn = class {
           y:p.y-axisPoint.y
         };
         const reflected=this.reflectPoint(p,axisPoint,axisDir);
-        const rx=reflected.x+ (forward?-depth:depth);
+        const rx=reflected.x+ (forward?-depth*.72:depth*.72);
         const ry=reflected.y+lift;
         return {x:rx,y:ry};
       };
@@ -310,7 +314,7 @@ window.LongboxNativePageTurn = class {
       grad.addColorStop(.52,"rgba(255,255,255,.08)");
       grad.addColorStop(1,"rgba(0,0,0,0)");
       ctx.fillStyle=grad;
-      ctx.globalAlpha=.7*Math.sin(Math.PI*t);
+      ctx.globalAlpha=.42*Math.sin(Math.PI*t);
       ctx.fillRect(0,0,rect.width,rect.height);
       ctx.globalAlpha=1;
 
