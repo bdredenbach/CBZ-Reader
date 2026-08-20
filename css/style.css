@@ -1376,8 +1376,8 @@ button.reader-btn.mini-btn {
 }
 
 
-/* v59.8.1 — Corrected Corner Geometry */
-.native-geometry59-8-1 {
+/* v59.9 — Continuous True Fold */
+.native-true-fold59-9 {
   position:absolute;
   inset:0;
   z-index:4;
@@ -1385,7 +1385,7 @@ button.reader-btn.mini-btn {
   pointer-events:none;
   background:transparent;
 }
-.native-geometry59-8-1-canvas {
+.native-true-fold59-9-canvas {
   position:absolute;
   inset:0;
   width:100%;
