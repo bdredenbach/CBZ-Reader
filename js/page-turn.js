@@ -149,8 +149,9 @@ window.LongboxNativePageTurn = class {
         const pitch=((corner.y-rect.height*.5)/Math.max(1,rect.width*.48))*18*foldBand;
         const lift=(corner.y-rect.height*.5)*.20*foldBand;
 
-        const sx0=u0*oldImg.naturalWidth;
-        const sx1=u1*oldImg.naturalWidth;
+        const overlapPx = 1.5;
+        const sx0=Math.max(0,u0*oldImg.naturalWidth-overlapPx);
+        const sx1=Math.min(oldImg.naturalWidth,u1*oldImg.naturalWidth+overlapPx);
         const sw=sx1-sx0;
 
         // Approximate the curved surface with a single transformed quad.
@@ -168,21 +169,13 @@ window.LongboxNativePageTurn = class {
           oldImg,
           sx0,0,sw,oldImg.naturalHeight,
           -(x1-x0)/2,-h/2,
-          x1-x0,h
+          (x1-x0)+2.0,h
         );
         ctx.restore();
       }
 
-      // Fold highlight/shadow on the single surface.
-      const foldX=forward ? rect.width*(1-.98*t) : rect.width*.98*t;
-      const grad=ctx.createLinearGradient(foldX-rect.width*.07,0,foldX+rect.width*.07,0);
-      grad.addColorStop(0,"rgba(255,255,255,0)");
-      grad.addColorStop(.45,"rgba(255,255,255,.20)");
-      grad.addColorStop(.62,"rgba(0,0,0,.24)");
-      grad.addColorStop(1,"rgba(0,0,0,0)");
-      ctx.fillStyle=grad;
-      ctx.fillRect(foldX-rect.width*.09,0,rect.width*.18,rect.height);
-
+      // v59.7.1: no separate fold stripe. The page's own local shading
+      // supplies the fold cue without drawing an artificial vertical line.
       if(raw<1) requestAnimationFrame(frame);
       else finish();
     };
