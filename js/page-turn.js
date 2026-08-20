@@ -143,6 +143,7 @@ window.LongboxNativePageTurn = class {
     };
 
     requestAnimationFrame(frame);
+    setTimeout(() => { if (!ended) finish(); }, this.duration + 400);
     return true;
   }
 };
