@@ -927,6 +927,86 @@ turnMethods = {
 
 	},
 
+	// Experimental: begin a live finger-follow fold from an arbitrary point.
+	grabStart: function(x, y, direction) {
+
+		var data = this.data(),
+			view = this.turn('view'),
+			current = view[0],
+			next = (direction === 'next') ? current + 1 : current - 1;
+
+		if (!current || next < 1 || next > data.totalPages || !data.pages[current])
+			return false;
+
+		turnMethods._makeRange.call(this);
+
+		var page = data.pages[current],
+			opts = page.data().f.opts,
+			corner = (direction === 'next') ? 'br' : 'bl',
+			point = {x: x, y: y, corner: corner};
+
+		opts.next = next;
+		data.tpage = next;
+		data.pagePlace[next] = opts.page;
+		opts.force = true;
+
+		if (page.flip('isTurning'))
+			return false;
+
+		flipMethods.setData.call(page, {corner: point});
+		flipMethods._moveFoldingPage.call(page, true);
+		flipMethods._showFoldedPage.call(page, point);
+
+		return true;
+	},
+
+	// Experimental: move an already-started fold with the finger.
+	grabMove: function(x, y) {
+
+		var data = this.data(),
+			view = this.turn('view'),
+			current = view[0],
+			page = current && data.pages[current];
+
+		if (!page)
+			return false;
+
+		var fd = page.data().f;
+		if (!fd.corner)
+			return false;
+
+		fd.corner.x = x;
+		fd.corner.y = y;
+		flipMethods._showFoldedPage.call(page, fd.corner);
+
+		return true;
+	},
+
+	// Experimental: release the finger. A committed drag completes the
+	// existing Turn.js turnPage animation; otherwise the fold springs back.
+	grabEnd: function(commit) {
+
+		var data = this.data(),
+			view = this.turn('view'),
+			current = view[0],
+			page = current && data.pages[current];
+
+		if (!page)
+			return false;
+
+		var fd = page.data().f;
+		if (!fd.corner)
+			return false;
+
+		if (commit) {
+			page.flip('turnPage', fd.corner.corner);
+		} else {
+			flipMethods.hideFoldedPage.call(page, true);
+		}
+
+		return true;
+	},
+
 	// Gets and sets a page
 
 	page: function(page) {

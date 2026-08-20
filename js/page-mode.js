@@ -257,29 +257,53 @@ window.LongboxPageMode = (() => {
 
     _gestureMove(e) {
       const g = this._gesture;
-      if (!g || !g.active || g.triggered || !this.book) return;
+      if (!g || !g.active || !this.book) return;
       const p = e.touches?.[0] || e;
       if (!p || typeof p.clientX !== "number") return;
 
-      g.lastX = p.clientX;
-      g.lastY = p.clientY;
       const dx = p.clientX - g.x0;
       const dy = p.clientY - g.y0;
+      g.lastX = p.clientX;
+      g.lastY = p.clientY;
 
-      // Require a clear horizontal drag, not a tap or vertical scroll.
-      if (Math.abs(dx) < 28 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+      const rect = this._gestureBook.getBoundingClientRect();
+      const x = Math.max(1, Math.min(rect.width - 1, p.clientX - rect.left));
+      const y = Math.max(1, Math.min(rect.height - 1, p.clientY - rect.top));
 
-      g.triggered = true;
+      if (!g.triggered) {
+        if (Math.abs(dx) < 28 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+
+        g.triggered = true;
+        g.direction = dx < 0 ? "next" : "prev";
+
+        const started = this.book.turn("grabStart", x, y, g.direction);
+        if (!started) {
+          g.triggered = false;
+          return;
+        }
+      } else {
+        this.book.turn("grabMove", x, y);
+      }
+
       e.preventDefault();
-
-      // LTR: drag left = next, drag right = previous.
-      if (dx < 0) this.next();
-      else this.prev();
     }
 
     _gestureEnd() {
+      const g = this._gesture;
+      if (g && g.triggered && this.book) {
+        const rect = this._gestureBook?.getBoundingClientRect();
+        const dx = g.lastX - g.x0;
+        const width = rect?.width || window.innerWidth;
+        // Commit after pulling roughly a quarter of the sheet; otherwise
+        // let Turn.js spring the page back.
+        const commit = Math.abs(dx) > Math.max(90, width * 0.25);
+        try {
+          this.book.turn("grabEnd", commit);
+        } catch (_) {}
+      }
       this._gesture = null;
     }
+
 
     resize() {
       if (!this.book || !this.host) return;
