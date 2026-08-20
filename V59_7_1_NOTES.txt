@@ -1,0 +1,7 @@
+v59.7.1 — Faster / No Artificial Fold Lines
+- Based directly on v59.7 Continuous Sheet.
+- Turn duration reduced from 940ms to 680ms.
+- Mesh reduced from 160 to 72 segments.
+- Adjacent canvas cells overlap slightly to reduce seams.
+- Removed the separate vertical fold gradient; local page shading remains.
+- Reader architecture unchanged.
