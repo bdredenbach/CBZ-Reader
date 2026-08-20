@@ -245,6 +245,9 @@ const Reader = {
    viewport.style.transform = "";
    viewport.classList.add("flip-mode");
 
+   // Wait one frame so stage has real layout size
+   await new Promise((r) => requestAnimationFrame(r));
+
    const book = document.createElement("div");
    book.id = "flip-book";
    book.className = "flip-book";
@@ -256,6 +259,7 @@ const Reader = {
    for (let i = 0; i < pageCount; i++) {
      const page = document.createElement("div");
      page.className = "flip-page";
+     page.dataset.density = "soft";
      page.dataset.index = i;
      const img = document.createElement("img");
      img.draggable = false;
@@ -266,37 +270,49 @@ const Reader = {
      pages.push(page);
    }
 
+   // Preload images around the start page BEFORE initializing the book
+   // so the first frames have actual artwork.
+   await this.ensureFlipImagesLoaded(this.index);
+
    // Measure stage for base size (required by the library)
    const stageW = Math.max(200, stage.clientWidth || 400);
    const stageH = Math.max(280, stage.clientHeight || 600);
-   // Prefer portrait page proportions; library will stretch
-   const baseW = Math.min(stageW, Math.round(stageH * 0.7));
-   const baseH = Math.round(baseW * 1.4);
+   // Single-page portrait book that fills the reader stage
+   const baseW = Math.max(200, Math.round(stageW * 0.92));
+   const baseH = Math.max(280, Math.round(stageH * 0.92));
 
-   const pageFlip = new St.PageFlip(book, {
-     width: baseW,
-     height: baseH,
-     size: "stretch",
-     minWidth: 200,
-     maxWidth: stageW,
-     minHeight: 280,
-     maxHeight: stageH,
-     drawShadow: true,
-     maxShadowOpacity: 0.45,
-     showCover: false,
-     mobileScrollSupport: false,
-     swipeDistance: 30,
-     clickEventForward: true,
-     usePortrait: true,
-     startPage: this.index,
-     flippingTime: 700,
-     useMouseEvents: true,
-     autoSize: true,
-     showPageCorners: true,
-     disableFlipByClick: false
-   });
+   let pageFlip;
+   try {
+     pageFlip = new St.PageFlip(book, {
+       width: baseW,
+       height: baseH,
+       size: "stretch",
+       minWidth: 180,
+       maxWidth: stageW,
+       minHeight: 240,
+       maxHeight: stageH,
+       drawShadow: true,
+       maxShadowOpacity: 0.5,
+       showCover: false,
+       mobileScrollSupport: false,
+       swipeDistance: 25,
+       clickEventForward: true,
+       usePortrait: true,
+       startPage: Math.max(0, Math.min(this.index, pageCount - 1)),
+       flippingTime: 650,
+       useMouseEvents: true,
+       autoSize: true,
+       showPageCorners: true,
+       disableFlipByClick: false
+     });
 
-   pageFlip.loadFromHTML(pages);
+     pageFlip.loadFromHTML(pages);
+   } catch (err) {
+     console.error("PageFlip init failed:", err);
+     this.destroyPageFlip();
+     await this.renderPaged();
+     return;
+   }
 
    pageFlip.on("flip", (e) => {
      if (this._flipSyncing) return;
@@ -313,11 +329,15 @@ const Reader = {
    });
 
    this.pageFlip = pageFlip;
+   this.debugLog(`PageFlip ready: ${pageCount} pages, start=${this.index}, ${baseW}x${baseH}`);
 
-   // Load images around the starting page, then a bit more in background
-   await this.ensureFlipImagesLoaded(this.index);
    this.prefetch();
    this.loadPanelsForCurrentPage();
+
+   // After images settle, force a layout refresh
+   requestAnimationFrame(() => {
+     try { this.pageFlip && this.pageFlip.update(); } catch (_) {}
+   });
 
    // Keep book sized to the stage
    if (typeof ResizeObserver !== "undefined") {
@@ -331,17 +351,22 @@ const Reader = {
  },
 
  async ensureFlipImagesLoaded(centerIndex) {
-   if (!this._flipBookEl || !this.comic) return;
-   const radius = 3;
+   if (!this.comic) return;
+   const root = this._flipBookEl || this.els.viewport;
+   if (!root) return;
+   const radius = 4;
    const start = Math.max(0, centerIndex - radius);
    const end = Math.min(this.comic.pageCount - 1, centerIndex + radius);
    const tasks = [];
    for (let i = start; i <= end; i++) {
-     const img = this._flipBookEl.querySelector(`img[data-page-index="${i}"]`);
-     if (!img || img.src) continue;
+     // Search viewport too — StPageFlip may reparent page nodes
+     const img =
+       root.querySelector(`img[data-page-index="${i}"]`) ||
+       this.els.viewport.querySelector(`img[data-page-index="${i}"]`);
+     if (!img || (img.getAttribute("src") && img.src)) continue;
      tasks.push(
        this.getPageUrl(i).then((url) => {
-         if (url && img && !img.src) img.src = url;
+         if (url && img && !img.getAttribute("src")) img.src = url;
        })
      );
    }
