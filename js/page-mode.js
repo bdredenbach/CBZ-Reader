@@ -267,11 +267,19 @@ window.LongboxPageMode = (() => {
       g.lastY = p.clientY;
 
       const rect = this._gestureBook.getBoundingClientRect();
-      const x = Math.max(1, Math.min(rect.width - 1, p.clientX - rect.left));
+      let localDx = dx;
+      // Small amount of resistance just after the gesture begins makes the
+      // sheet feel less twitchy and prevents tiny finger movements from
+      // throwing the fold around.
+      if (g.triggered) {
+        const resistance = Math.min(Math.abs(localDx), 20) * 0.35;
+        localDx += localDx < 0 ? resistance : -resistance;
+      }
+      const x = Math.max(1, Math.min(rect.width - 1, g.x0 + localDx - rect.left));
       const y = Math.max(1, Math.min(rect.height - 1, p.clientY - rect.top));
 
       if (!g.triggered) {
-        if (Math.abs(dx) < 28 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+        if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
 
         g.triggered = true;
         g.direction = dx < 0 ? "next" : "prev";
@@ -296,7 +304,7 @@ window.LongboxPageMode = (() => {
         const width = rect?.width || window.innerWidth;
         // Commit after pulling roughly a quarter of the sheet; otherwise
         // let Turn.js spring the page back.
-        const commit = Math.abs(dx) > Math.max(90, width * 0.25);
+        const commit = Math.abs(dx) > Math.max(90, width * 0.30);
         try {
           this.book.turn("grabEnd", commit);
         } catch (_) {}
