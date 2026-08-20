@@ -12,6 +12,7 @@ window.LongboxNativePageTurn = class {
     this.reader = reader;
     this.running = false;
     this.duration = 650;
+    this.bowBands = 18;
   }
 
   clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
@@ -202,11 +203,37 @@ window.LongboxNativePageTurn = class {
         -oldBox.h*.5
       );
 
-      ctx.drawImage(
-        oldImg,
-        0,0,
-        oldBox.w,oldBox.h
-      );
+      /*
+       * v59.12 — subtle paper bow.
+       *
+       * The center of the sheet lags very slightly behind the edges while
+       * the corner-driven rotation is occurring. The displacement is only a
+       * few pixels and fades to zero at the top/bottom edges, so the page
+       * still reads as one sheet rather than a segmented effect.
+       */
+      const bowStrength =
+        Math.sin(Math.PI*t) * Math.sin(Math.PI*t) *
+        Math.min(oldBox.w, oldBox.h) * .012;
+
+      const bands = this.bowBands;
+      for(let bi=0; bi<bands; bi++){
+        const v0=bi/bands;
+        const v1=(bi+1)/bands;
+        const sy0=v0*oldBox.h;
+        const sy1=v1*oldBox.h;
+        const mid=v0+.5/bands;
+
+        // Maximum bow at the center, zero at the edges.
+        const bow=Math.sin(Math.PI*mid)*bowStrength;
+
+        ctx.drawImage(
+          oldImg,
+          0,sy0,
+          oldBox.w,Math.max(1,sy1-sy0),
+          0,bow,
+          oldBox.w,Math.max(1,sy1-sy0)
+        );
+      }
 
       ctx.restore();
 
