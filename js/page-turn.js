@@ -306,28 +306,75 @@ window.LongboxNativePageTurn = class {
 
       ctx.restore();
 
-      // Very restrained fold shading. No artificial vertical stripe.
-      const intensity=.10*Math.sin(Math.PI*t);
-      if(intensity>.001){
-        const x=forward
+      /*
+       * v59.18 — Dynamic Fold Shadow.
+       *
+       * Lighting follows the current corner/fold position instead of being
+       * a fixed stripe. The shadow is strongest near the active bend,
+       * broadens across the folded area, and fades naturally as the page
+       * approaches its final position.
+       */
+      const lightPhase=Math.sin(Math.PI*t);
+      if(lightPhase>.001){
+        const foldX=forward
           ? spineX+oldBox.w*(1-t)
           : spineX-oldBox.w*(1-t);
 
+        const foldY=oldBox.y+corner.y;
+
+        const shadowWidth=
+          oldBox.w*(.035 + .055*lightPhase);
+
         const shadow=ctx.createLinearGradient(
-          x-oldBox.w*.035,0,
-          x+oldBox.w*.035,0
+          foldX-shadowWidth,
+          foldY,
+          foldX+shadowWidth,
+          foldY
         );
+
+        const shadowAlpha=.045 + .095*lightPhase;
         shadow.addColorStop(0,"rgba(0,0,0,0)");
-        shadow.addColorStop(.5,`rgba(0,0,0,${intensity})`);
+        shadow.addColorStop(.35,`rgba(0,0,0,${shadowAlpha*.45})`);
+        shadow.addColorStop(.50,`rgba(0,0,0,${shadowAlpha})`);
+        shadow.addColorStop(.67,`rgba(255,255,255,${shadowAlpha*.34})`);
         shadow.addColorStop(1,"rgba(255,255,255,0)");
 
+        ctx.save();
+        ctx.globalCompositeOperation="multiply";
         ctx.fillStyle=shadow;
         ctx.fillRect(
-          x-oldBox.w*.05,
+          foldX-shadowWidth,
           oldBox.y,
-          oldBox.w*.10,
+          shadowWidth*2,
           oldBox.h
         );
+        ctx.restore();
+
+        // Small specular highlight close to the moving corner. It is kept
+        // deliberately soft so it reads as paper catching light, not a line.
+        const highlightRadius=
+          Math.min(oldBox.w,oldBox.h)*(.045+.025*lightPhase);
+        const highlight=ctx.createRadialGradient(
+          corner.x+oldBox.x,
+          foldY,
+          0,
+          corner.x+oldBox.x,
+          foldY,
+          highlightRadius
+        );
+        highlight.addColorStop(0,`rgba(255,255,255,${.055*lightPhase})`);
+        highlight.addColorStop(1,"rgba(255,255,255,0)");
+
+        ctx.save();
+        ctx.globalCompositeOperation="screen";
+        ctx.fillStyle=highlight;
+        ctx.fillRect(
+          corner.x+oldBox.x-highlightRadius,
+          foldY-highlightRadius,
+          highlightRadius*2,
+          highlightRadius*2
+        );
+        ctx.restore();
       }
 
       if(raw<1){
