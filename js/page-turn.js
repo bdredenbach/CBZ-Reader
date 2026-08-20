@@ -166,6 +166,29 @@ window.LongboxNativePageTurn = class {
       );
 
       /*
+       * v59.15 — gentle landing.
+       *
+       * During the final 18% of the turn, introduce a very small damped
+       * settle. It starts at zero, peaks briefly, and returns to zero before
+       * the page is committed, so the final resting page remains perfectly
+       * flat.
+       */
+      const settleStart=.82;
+      const settleT=this.clamp(
+        (t-settleStart)/(1-settleStart),0,1
+      );
+      if(settleT>0){
+        const settleWave=
+          Math.sin(Math.PI*settleT) *
+          Math.exp(-2.2*settleT);
+
+        motion.yaw += (forward?-1:1)*.032*settleWave;
+        motion.pitch += (forward?1:-1)*.014*settleWave;
+        motion.depth +=
+          Math.min(oldBox.w,oldBox.h)*.0025*settleWave;
+      }
+
+      /*
        * v59.13 — tiny corner furl.
        *
        * The furl lives entirely inside the existing v59.11 transform.
