@@ -1,9 +1,0 @@
-v59.8 — True Corner Geometry
-Base: known-good v59.5 Moving Fold Line.
-Selective geometry concepts recreated from StPageFlip FlipCalculation:
-- corner-driven angle calculation
-- rotated page rectangle
-- page/boundary intersection points
-- polygon clipping of the flipping page
-Turn.js-inspired cubic Bezier corner path is used for the simulated grab.
-No external flip library or dependency is included.
