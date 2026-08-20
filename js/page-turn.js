@@ -1,32 +1,60 @@
-/* Longbox Native Page Turn — v59.10 Known-Flip Geometry Hybrid
+/* Longbox Native Page Turn — v59.11 Corner-Driven Known Flip
  *
  * Base: v59.5.
- * Reference logic: last-known-good flip archive's single sheet + under-page
- * 3D composition and 650ms cubic-bezier-style timing.
+ * Presentation: known-good continuous 3D flip concept.
+ * New variable: the page's Y rotation is driven by a simulated grabbed
+ * corner rather than being a fixed spine rotation.
  *
- * Hybrid idea:
- *   - v59.5 supplies the moving corner/fold-line geometry.
- *   - known-good flip supplies the proven single-sheet rotateY presentation.
- *   - corner geometry adds pitch, lift, depth and dynamic lighting without
- *     splitting the page into independent DOM strips.
- *
- * No external flip library.
+ * No external libraries.
  */
 window.LongboxNativePageTurn = class {
-  constructor(reader){
-    this.reader=reader;
-    this.running=false;
-    this.duration=650;
+  constructor(reader) {
+    this.reader = reader;
+    this.running = false;
+    this.duration = 650;
   }
 
-  clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+  clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 
-  // Same corner path that proved useful in v59.5.
-  cornerAt(t,forward,w,h){
-    const e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
-    return forward
-      ? {x:w*(1-.94*e),y:h*(.06+.52*Math.sin(Math.PI*e))}
-      : {x:w*(.94*e),y:h*(.06+.52*Math.sin(Math.PI*e))};
+  ease(t){
+    // Smooth but quick known-good style motion.
+    return t < .5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
+  }
+
+  cornerAt(t, forward, w, h){
+    const e=this.ease(t);
+
+    // The corner begins near the top outer edge, travels toward the spine,
+    // dips slightly, then rises into the landing. This is the only new
+    // geometric variable in this version.
+    const yNorm=.045 + .22*Math.sin(Math.PI*e);
+
+    return {
+      x: forward ? w*(1-.94*e) : w*(.94*e),
+      y: h*yNorm
+    };
+  }
+
+  rotationFromCorner(corner, forward, w, h){
+    const spineX=forward ? 0 : w;
+    const dx=Math.abs(corner.x-spineX);
+    const dy=corner.y-h*.5;
+
+    // Corner distance determines the rotation strength. The vertical
+    // displacement contributes a small pitch-like correction without adding
+    // a separate page mesh.
+    const normalized=this.clamp(dx/w,0,1);
+    const vertical=this.clamp(dy/h,-.5,.5);
+
+    // Start near flat, reach the strongest turn through the middle, and
+    // flatten again at the landing.
+    const angle=Math.PI*(1-normalized);
+    const signed=forward ? -angle : angle;
+    return {
+      yaw:signed,
+      pitch:vertical*.12,
+      depth:Math.sin(angle)*Math.min(w,h)*.035
+    };
   }
 
   async loadImage(url){
@@ -41,19 +69,19 @@ window.LongboxNativePageTurn = class {
 
   async turn(direction){
     if(this.running)return false;
+
     const r=this.reader;
     if(!r.comic||r.mode!=="single"||r.scale>1.02)return false;
 
-    const from=r.index;
-    const to=direction==="next"?from+1:from-1;
+    const to=direction==="next"?r.index+1:r.index-1;
     if(to<0||to>=r.comic.pageCount)return false;
 
-    const oldImg=r.els.viewport.querySelector("img");
-    if(!oldImg)return false;
+    const current=r.els.viewport.querySelector("img");
+    if(!current)return false;
 
-    const oldSrc=oldImg.currentSrc||oldImg.src;
-    const newSrc=await r.getPageUrl(to);
-    if(!newSrc)return false;
+    const oldUrl=current.currentSrc||current.src;
+    const newUrl=await r.getPageUrl(to);
+    if(!newUrl)return false;
 
     const rect=r.els.viewport.getBoundingClientRect();
     if(rect.width<20||rect.height<20)return false;
@@ -61,29 +89,45 @@ window.LongboxNativePageTurn = class {
     this.running=true;
     r.showChrome();
 
-    const [oldLoaded,newLoaded]=await Promise.all([
-      this.loadImage(oldSrc),this.loadImage(newSrc)
+    const [oldImg,newImg]=await Promise.all([
+      this.loadImage(oldUrl),
+      this.loadImage(newUrl)
     ]);
 
-    const stage=document.createElement("div");
-    stage.className=`native-knownflip-hybrid ${direction}`;
+    const fit=img=>{
+      const s=Math.min(
+        rect.width/img.naturalWidth,
+        rect.height/img.naturalHeight
+      );
+      const w=img.naturalWidth*s;
+      const h=img.naturalHeight*s;
+      return {
+        x:(rect.width-w)/2,
+        y:(rect.height-h)/2,
+        w,h
+      };
+    };
 
-    const under=document.createElement("img");
-    const sheet=document.createElement("img");
-    under.className="native-knownflip-under";
-    sheet.className="native-knownflip-sheet";
-    under.src=newSrc;
-    sheet.src=oldSrc;
-    under.draggable=sheet.draggable=false;
-    under.alt=sheet.alt="";
+    const oldBox=fit(oldImg);
+    const newBox=fit(newImg);
 
-    stage.append(under,sheet);
-    r.els.viewport.appendChild(stage);
-    oldImg.style.visibility="hidden";
+    const layer=document.createElement("div");
+    layer.className=`native-corner-known59-11 ${direction}`;
+    const canvas=document.createElement("canvas");
+    const dpr=Math.min(window.devicePixelRatio||1,2);
 
-    // Force the browser to establish the 3D layer before the first frame.
-    stage.getBoundingClientRect();
-    sheet.getBoundingClientRect();
+    canvas.width=Math.round(rect.width*dpr);
+    canvas.height=Math.round(rect.height*dpr);
+    canvas.className="native-corner-known59-11-canvas";
+
+    layer.appendChild(canvas);
+    r.els.viewport.appendChild(layer);
+    current.style.visibility="hidden";
+
+    const ctx=canvas.getContext("2d");
+    ctx.scale(dpr,dpr);
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality="high";
 
     const start=performance.now();
     let ended=false;
@@ -91,75 +135,115 @@ window.LongboxNativePageTurn = class {
     const finish=async()=>{
       if(ended)return;
       ended=true;
-      stage.remove();
-      oldImg.style.visibility="";
+      layer.remove();
+      current.style.visibility="";
       r.index=to;
       r.updateSliderLabel();
       r.updateBookmarkFlag();
       r.saveProgress();
-      try{await r.render();}finally{this.running=false;}
+
+      try{
+        await r.render();
+      }finally{
+        this.running=false;
+      }
     };
 
     const frame=now=>{
       if(ended)return;
+
       const raw=Math.min(1,(now-start)/this.duration);
-
-      // Match the known-good flip's smooth 650ms feel while keeping the
-      // v59.5 corner/fold trajectory as the geometry driver.
-      const t=raw<.5
-        ?4*raw*raw*raw
-        :1-Math.pow(-2*raw+2,3)/2;
-
+      const t=this.ease(raw);
       const forward=direction==="next";
-      const corner=this.cornerAt(t,forward,rect.width,rect.height);
 
-      // v59.5 moving fold boundary.
-      const foldX=forward
-        ?rect.width*(1-.96*t)
-        :rect.width*(.96*t);
+      const corner=this.cornerAt(
+        t,forward,oldBox.w,oldBox.h
+      );
 
-      const slope=(corner.y-rect.height*.5)/
-        Math.max(1,rect.width*.48);
+      const motion=this.rotationFromCorner(
+        corner,forward,oldBox.w,oldBox.h
+      );
 
-      // Corner height becomes page pitch. Keep it restrained so the proven
-      // rotateY flip remains the dominant visual motion.
-      const pitch=slope*11;
-      const foldBand=Math.exp(-Math.pow(
-        (foldX-rect.width*.5)/(rect.width*.48),2
-      ));
-      const depth=22*Math.sin(Math.PI*t)*(.35+.65*foldBand);
-      const lift=(corner.y-rect.height*.5)*.075*Math.sin(Math.PI*t);
+      ctx.clearRect(0,0,rect.width,rect.height);
 
-      // Known-good flip: one continuous sheet rotating around the spine.
-      const yaw=(forward?-180:180)*t;
+      // Next page is always underneath.
+      ctx.drawImage(
+        newImg,
+        newBox.x,newBox.y,newBox.w,newBox.h
+      );
 
-      // Add a very small corner-dependent skew in the vertical axis by
-      // changing the transform origin vertically. It starts near the
-      // grabbed corner and settles toward the spine center.
-      const originY=6+(44*t);
+      // The old page is one continuous sheet. Its transform is anchored at
+      // the spine, preserving the visual character of the known-good flip.
+      const spineX=forward
+        ? oldBox.x
+        : oldBox.x+oldBox.w;
 
-      sheet.style.transformOrigin=
-        `${forward?100:0}% ${originY}%`;
+      const originY=oldBox.y+oldBox.h*.5;
 
-      sheet.style.transform=
-        `translate3d(0,${lift.toFixed(2)}px,${depth.toFixed(2)}px) `+
-        `rotateX(${pitch.toFixed(2)}deg) rotateY(${yaw.toFixed(2)}deg)`;
+      ctx.save();
 
-      // Geometry-driven shading, without a separate artificial line.
-      const shade=.035+.16*Math.sin(Math.PI*t);
-      sheet.style.filter=`brightness(${(1-shade).toFixed(3)})`;
+      ctx.translate(
+        spineX + (forward ? motion.depth : -motion.depth),
+        originY
+      );
 
-      // A soft fold shadow is attached to the sheet's movement, not drawn
-      // as a visible stripe over the comic.
-      const shadow=Math.sin(Math.PI*t)*.18;
-      stage.style.setProperty("--flip-shadow",shadow.toFixed(3));
+      ctx.rotate(motion.pitch);
 
-      if(raw<1)requestAnimationFrame(frame);
-      else finish();
+      // A small vertical scale adjustment gives the corner's up/down travel
+      // some physical consequence without introducing a mesh.
+      const verticalScale=1-.035*Math.abs(motion.pitch);
+      ctx.scale(
+        Math.cos(motion.yaw),
+        verticalScale
+      );
+
+      ctx.translate(
+        forward ? 0 : -oldBox.w,
+        -oldBox.h*.5
+      );
+
+      ctx.drawImage(
+        oldImg,
+        0,0,
+        oldBox.w,oldBox.h
+      );
+
+      ctx.restore();
+
+      // Very restrained fold shading. No artificial vertical stripe.
+      const intensity=.10*Math.sin(Math.PI*t);
+      if(intensity>.001){
+        const x=forward
+          ? spineX+oldBox.w*(1-t)
+          : spineX-oldBox.w*(1-t);
+
+        const shadow=ctx.createLinearGradient(
+          x-oldBox.w*.035,0,
+          x+oldBox.w*.035,0
+        );
+        shadow.addColorStop(0,"rgba(0,0,0,0)");
+        shadow.addColorStop(.5,`rgba(0,0,0,${intensity})`);
+        shadow.addColorStop(1,"rgba(255,255,255,0)");
+
+        ctx.fillStyle=shadow;
+        ctx.fillRect(
+          x-oldBox.w*.05,
+          oldBox.y,
+          oldBox.w*.10,
+          oldBox.h
+        );
+      }
+
+      if(raw<1){
+        requestAnimationFrame(frame);
+      }else{
+        finish();
+      }
     };
 
     requestAnimationFrame(frame);
     setTimeout(()=>{if(!ended)finish();},this.duration+450);
+
     return true;
   }
 };
