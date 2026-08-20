@@ -13,6 +13,7 @@ window.LongboxPageMode = (() => {
       this.onPageChanged = onPageChanged || (() => {});
       this.onState = onState || (() => {});
       this.host = null;
+      this._hostStyle = null;
       this.book = null;
       this.issueKey = null;
       this.pageCount = 0;
@@ -31,8 +32,16 @@ window.LongboxPageMode = (() => {
       window.removeEventListener("resize", this._boundResize);
       if (this.host) {
         this.host.innerHTML = "";
-        this.host.style.display = "none";
+
+        // Turn.js needs a heavily styled absolute host. Restore every inline
+        // property it borrowed, not just display, before another mode renders.
+        if (this._hostStyle === null) {
+          this.host.removeAttribute("style");
+        } else {
+          this.host.setAttribute("style", this._hostStyle);
+        }
       }
+      this._hostStyle = null;
     }
 
     async waitForImage(img) {
@@ -61,6 +70,11 @@ window.LongboxPageMode = (() => {
     async render(host) {
       this._destroyed = false;
       this.host = host;
+      // Remember the reader viewport's pre-Turn.js inline state so every
+      // other reading mode gets the exact same container back on destroy.
+      if (this._hostStyle === null) {
+        this._hostStyle = host.getAttribute("style");
+      }
       const issue = this.getIssue();
       if (!issue || !window.jQuery || !jQuery.fn.turn) {
         this.onState("Turn.js unavailable");
