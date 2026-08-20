@@ -84,6 +84,16 @@ window.LongboxNativePageTurn = class {
     if(this.running)return false;
 
     const r=this.reader;
+
+    // v59.20: one-off Turn.js experiment. If the library is unavailable
+    // (offline/CSP/etc.) or its isolated test fails, retain the v59.19
+    // native animation exactly as the fallback.
+    if(window.LongboxTurnJsTest &&
+       window.LongboxTurnJsTest.available &&
+       window.LongboxTurnJsTest.available()){
+      const turnResult=await window.LongboxTurnJsTest.turn(r,direction);
+      if(turnResult)return true;
+    }
     if(!r.comic||r.mode!=="single"||r.scale>1.02)return false;
 
     const to=direction==="next"?r.index+1:r.index-1;
