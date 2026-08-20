@@ -1,60 +1,28 @@
-/* Longbox Native Page Turn — v59.8.1
- * Corner Geometry, corrected coordinate system.
+/* Longbox Native Page Turn — v59.9 Continuous True Fold
  *
  * Base: known-good v59.5.
- * One continuous canvas surface.
- * Selective recreation of the corner/angle/clip concepts from StPageFlip.
- * No external library.
+ * Rendering: one canvas surface.
+ *
+ * Geometry:
+ *   corner -> fold axis -> boundary intersections -> stationary region
+ *   + folded region reflected across the moving fold axis.
+ *
+ * The folded surface is represented by a small continuous canvas mesh.
+ * Adjacent quads overlap by a fraction of a pixel to avoid visible seams.
+ * No external flip library.
  */
 window.LongboxNativePageTurn = class {
   constructor(reader) {
     this.reader = reader;
     this.running = false;
-    this.duration = 720;
+    this.duration = 700;
+    this.segments = 64;
   }
 
   clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 
   ease(t){
     return t < .5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
-  }
-
-  angleFromCorner(pos,w,h){
-    const x=Math.max(1,w-pos.x);
-    const y=Math.max(0,pos.y);
-    const d=Math.sqrt(x*x+y*y);
-    let a=2*Math.acos(this.clamp(x/d,-1,1));
-    if(y<0) a=-a;
-    return this.clamp(a,-Math.PI*.985,Math.PI*.985);
-  }
-
-  rotatePoint(p,o,a){
-    return {
-      x:(p.x-o.x)*Math.cos(a)+(p.y-o.y)*Math.sin(a)+o.x,
-      y:(p.y-o.y)*Math.cos(a)-(p.x-o.x)*Math.sin(a)+o.y
-    };
-  }
-
-  // Intersect an infinite fold line with a page boundary.
-  lineIntersection(a,b,c,d){
-    const den=(a.x-b.x)*(c.y-d.y)-(a.y-b.y)*(c.x-d.x);
-    if(Math.abs(den)<1e-7)return null;
-    const t=((a.x-c.x)*(c.y-d.y)-(a.y-c.y)*(c.x-d.x))/den;
-    return {x:a.x+t*(b.x-a.x),y:a.y+t*(b.y-a.y)};
-  }
-
-  boundaryPoint(p,q,w,h,edge){
-    const bounds={
-      top:[{x:0,y:0},{x:w,y:0}],
-      right:[{x:w,y:0},{x:w,y:h}],
-      bottom:[{x:w,y:h},{x:0,y:h}],
-      left:[{x:0,y:h},{x:0,y:0}]
-    };
-    const hit=this.lineIntersection(p,q,bounds[edge][0],bounds[edge][1]);
-    if(!hit)return null;
-    const eps=.5;
-    if(hit.x < -eps || hit.x > w+eps || hit.y < -eps || hit.y > h+eps) return null;
-    return {x:this.clamp(hit.x,0,w),y:this.clamp(hit.y,0,h)};
   }
 
   async loadImage(url){
@@ -67,13 +35,151 @@ window.LongboxNativePageTurn = class {
     });
   }
 
+  // Signed distance from a point to the moving fold axis.
+  // The fold axis is defined by a point and a direction vector.
+  signedDistance(p, axisPoint, axisDir){
+    return (p.x-axisPoint.x)*axisDir.y -
+           (p.y-axisPoint.y)*axisDir.x;
+  }
+
+  reflectPoint(p, axisPoint, axisDir){
+    const len=Math.hypot(axisDir.x,axisDir.y)||1;
+    const ux=axisDir.x/len, uy=axisDir.y/len;
+    const dx=p.x-axisPoint.x, dy=p.y-axisPoint.y;
+    const proj=dx*ux+dy*uy;
+    const px=axisPoint.x+proj*ux;
+    const py=axisPoint.y+proj*uy;
+    return {x:2*px-p.x,y:2*py-p.y};
+  }
+
+  lineBoundaryIntersection(a,b,w,h){
+    const edges=[
+      [{x:0,y:0},{x:w,y:0}],
+      [{x:w,y:0},{x:w,y:h}],
+      [{x:w,y:h},{x:0,y:h}],
+      [{x:0,y:h},{x:0,y:0}]
+    ];
+    const hits=[];
+    for(const e of edges){
+      const p=e[0],q=e[1];
+      const den=(a.x-b.x)*(p.y-q.y)-(a.y-b.y)*(p.x-q.x);
+      if(Math.abs(den)<1e-8)continue;
+      const t=((a.x-p.x)*(p.y-q.y)-(a.y-p.y)*(p.x-q.x))/den;
+      const u=-((a.x-b.x)*(a.y-p.y)-(a.y-b.y)*(a.x-p.x))/den;
+      if(t>=-1e-5&&t<=1.00001&&u>=-1e-5&&u<=1.00001){
+        hits.push({
+          x:a.x+t*(b.x-a.x),
+          y:a.y+t*(b.y-a.y)
+        });
+      }
+    }
+    return hits;
+  }
+
+  drawImageMesh(ctx,img,box,axisPoint,axisDir,forward,t){
+    const W=box.w,H=box.h;
+    const count=this.segments;
+    const overlap=Math.max(0.35,W/count*.12);
+
+    /*
+     * The fold axis is the physical crease. The stationary part is drawn
+     * normally by the caller. Here we draw only the folded side.
+     *
+     * Each narrow quad samples the same continuous source image. The source
+     * coordinates are derived from the original x positions, then the four
+     * destination corners are reflected/offset around the fold.
+     */
+    for(let i=0;i<count;i++){
+      const x0=i/count*W;
+      const x1=(i+1)/count*W;
+      const mid=(x0+x1)/2;
+      const p0={x:box.x+x0,y:box.y};
+      const p1={x:box.x+x1,y:box.y};
+      const p2={x:box.x+x1,y:box.y+H};
+      const p3={x:box.x+x0,y:box.y+H};
+
+      const d=this.signedDistance(
+        {x:box.x+mid,y:box.y+H/2},axisPoint,axisDir
+      );
+
+      // Only the side being turned is rendered here.
+      const turning=forward ? d<0 : d>0;
+      if(!turning)continue;
+
+      const foldWeight=this.clamp(Math.abs(d)/(W*.62),0,1);
+      const curl=Math.sin(Math.PI*foldWeight)*Math.sin(Math.PI*t);
+      const depth=62*curl;
+      const lift=(axisPoint.y-(box.y+H/2))*0.10*curl;
+
+      const transformPoint=(p)=>{
+        const local={
+          x:p.x-axisPoint.x,
+          y:p.y-axisPoint.y
+        };
+        const reflected=this.reflectPoint(p,axisPoint,axisDir);
+        const rx=reflected.x+ (forward?-depth:depth);
+        const ry=reflected.y+lift;
+        return {x:rx,y:ry};
+      };
+
+      const q0=transformPoint(p0);
+      const q1=transformPoint(p1);
+      const q2=transformPoint(p2);
+      const q3=transformPoint(p3);
+
+      /*
+       * Approximate the quad with two affine triangles. This keeps the page
+       * as one continuous canvas while allowing the folded side to move.
+       */
+      const sx0=Math.max(0,x0-overlap);
+      const sx1=Math.min(W,x1+overlap);
+      const sw=sx1-sx0;
+
+      const drawTri=(a,b,c,sa,sb,sc)=>{
+        const denom=(sb-sa)*(c.y-a.y)-(b.y-a.y)*(sc-sa);
+        if(Math.abs(denom)<1e-7)return;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.lineTo(c.x,c.y);
+        ctx.closePath();ctx.clip();
+
+        const A=(b.x-a.x), B=(b.y-a.y);
+        const C=(c.x-a.x), D=(c.y-a.y);
+        const E=(sb-sa), F=(sc-sa);
+        const det=E*(c.y-a.y)-F*(b.y-a.y);
+        if(Math.abs(det)<1e-7){ctx.restore();return;}
+
+        const m11=(A*(c.y-a.y)-C*(b.y-a.y))/det;
+        const m21=(B*(c.y-a.y)-D*(b.y-a.y))/det;
+        const m12=(C*E-A*F)/det;
+        const m22=(D*E-B*F)/det;
+        const tx=a.x-m11*sa-m12*a.y;
+        const ty=a.y-m21*sa-m22*a.y;
+
+        ctx.transform(m11,m21,m12,m22,tx,ty);
+        ctx.drawImage(
+          img,
+          box.x+sa,0,
+          Math.max(1,sb-sa),img.naturalHeight,
+          0,0,
+          Math.max(1,sb-sa),H
+        );
+        ctx.restore();
+      };
+
+      // The mesh source is continuous; neighboring cells overlap slightly.
+      drawTri(q0,q1,q3,sx0,sx1,sx0);
+      drawTri(q1,q2,q3,sx1,sx1,sx0);
+    }
+  }
+
   async turn(direction){
     if(this.running)return false;
     const r=this.reader;
-    if(!r.comic || r.mode!=="single" || r.scale>1.02)return false;
+    if(!r.comic||r.mode!=="single"||r.scale>1.02)return false;
 
     const to=direction==="next"?r.index+1:r.index-1;
-    if(to<0 || to>=r.comic.pageCount)return false;
+    if(to<0||to>=r.comic.pageCount)return false;
 
     const current=r.els.viewport.querySelector("img");
     if(!current)return false;
@@ -98,15 +204,14 @@ window.LongboxNativePageTurn = class {
       return {x:(rect.width-w)/2,y:(rect.height-h)/2,w,h};
     };
     const oldBox=fit(oldImg),newBox=fit(newImg);
-    const W=oldBox.w,H=oldBox.h;
 
     const layer=document.createElement("div");
-    layer.className=`native-geometry59-8-1 ${direction}`;
+    layer.className=`native-true-fold59-9 ${direction}`;
     const canvas=document.createElement("canvas");
     const dpr=Math.min(window.devicePixelRatio||1,2);
     canvas.width=Math.round(rect.width*dpr);
     canvas.height=Math.round(rect.height*dpr);
-    canvas.className="native-geometry59-8-1-canvas";
+    canvas.className="native-true-fold59-9-canvas";
     layer.appendChild(canvas);
     r.els.viewport.appendChild(layer);
     current.style.visibility="hidden";
@@ -131,83 +236,90 @@ window.LongboxNativePageTurn = class {
       try{await r.render();}finally{this.running=false;}
     };
 
-    const drawNew=()=>{
-      ctx.drawImage(newImg,newBox.x,newBox.y,newBox.w,newBox.h);
-    };
-
     const frame=now=>{
       if(ended)return;
+
       const raw=Math.min(1,(now-start)/this.duration);
       const t=this.ease(raw);
       const forward=direction==="next";
-
-      // Active top corner moves diagonally, but this test uses only the
-      // resulting geometry; no extra Bezier/furl math is introduced.
-      const p={
-        x: forward ? W*(1-.965*t) : W*(.035+.965*t),
-        y: H*(.035+.50*Math.sin(Math.PI*t))
-      };
-
-      // Mirror the local page for previous-page turns.
-      const localP=forward ? p : {x:W-p.x,y:p.y};
-      const angle=this.angleFromCorner(localP,W,H);
-
-      ctx.clearRect(0,0,rect.width,rect.height);
-      drawNew();
+      const W=oldBox.w,H=oldBox.h;
 
       /*
-       * Reference-style coordinate system:
-       * 1. Move origin to the fold point.
-       * 2. Build the page's transformed boundary around that point.
-       * 3. Clip in that same local coordinate space.
-       * 4. Rotate the page.
-       * 5. Draw the continuous image once.
-       *
-       * This avoids mixing viewport coordinates with page-local polygons.
+       * Corner trajectory. The corner itself travels diagonally, while the
+       * crease is perpendicular to the vector from the page center to that
+       * corner. This is the physical "grab" model we were after.
        */
-      const foldX=oldBox.x+localP.x;
-      const foldY=oldBox.y+localP.y;
+      const corner={
+        x:oldBox.x+(forward ? W*(1-.94*t) : W*(.94*t)),
+        y:oldBox.y+H*(.055+.50*Math.sin(Math.PI*t))
+      };
+      const center={x:oldBox.x+W/2,y:oldBox.y+H/2};
+      const vx=corner.x-center.x,vy=corner.y-center.y;
+      const len=Math.hypot(vx,vy)||1;
 
+      // Fold axis is perpendicular to center->corner.
+      const axisDir={x:-vy/len,y:vx/len};
+
+      // Slightly pull the fold point toward the corner as the turn progresses.
+      const axisPoint={
+        x:center.x+(corner.x-center.x)*.72,
+        y:center.y+(corner.y-center.y)*.72
+      };
+
+      ctx.clearRect(0,0,rect.width,rect.height);
+
+      // New page: always continuous and underneath.
+      ctx.drawImage(newImg,newBox.x,newBox.y,newBox.w,newBox.h);
+
+      // Stationary part of old page. Clip against the fold axis.
       ctx.save();
-      ctx.translate(foldX,foldY);
-      ctx.rotate(forward ? angle : -angle);
-
-      // The visible turning half is clipped against a moving fold boundary.
       ctx.beginPath();
-      if(forward){
-        ctx.moveTo(0,-H);
-        ctx.lineTo(W,-H);
-        ctx.lineTo(W,H);
-        ctx.lineTo(0,H);
-        ctx.closePath();
-      }else{
-        ctx.moveTo(-W,-H);
-        ctx.lineTo(0,-H);
-        ctx.lineTo(0,H);
-        ctx.lineTo(-W,H);
-        ctx.closePath();
-      }
+      const pad=Math.max(rect.width,rect.height)*2;
+      const a={
+        x:axisPoint.x-axisDir.x*pad,
+        y:axisPoint.y-axisDir.y*pad
+      };
+      const b={
+        x:axisPoint.x+axisDir.x*pad,
+        y:axisPoint.y+axisDir.y*pad
+      };
+      ctx.moveTo(a.x,a.y);
+      ctx.lineTo(b.x,b.y);
+      ctx.lineTo(b.x+(forward?pad:-pad),b.y);
+      ctx.lineTo(a.x+(forward?pad:-pad),a.y);
+      ctx.closePath();
       ctx.clip();
 
-      ctx.translate(forward ? 0 : -W,0);
-      ctx.drawImage(oldImg,0,0,W,H);
+      // Draw old page normally, then the folded side overlays it.
+      ctx.drawImage(oldImg,oldBox.x,oldBox.y,oldBox.w,oldBox.h);
       ctx.restore();
 
-      // Fold shadow stays tied to the actual fold point, not a separate
-      // artificial vertical stripe.
-      const shadow=ctx.createRadialGradient(foldX,foldY,0,foldX,foldY,Math.max(45,W*.16));
-      shadow.addColorStop(0,"rgba(0,0,0,.18)");
-      shadow.addColorStop(.32,"rgba(0,0,0,.07)");
-      shadow.addColorStop(1,"rgba(0,0,0,0)");
-      ctx.fillStyle=shadow;
+      this.drawImageMesh(
+        ctx,oldImg,oldBox,axisPoint,axisDir,forward,t
+      );
+
+      // Soft crease shadow, tied to the actual fold axis.
+      const pA={x:axisPoint.x-axisDir.x*rect.width,y:axisPoint.y-axisDir.y*rect.width};
+      const pB={x:axisPoint.x+axisDir.x*rect.width,y:axisPoint.y+axisDir.y*rect.width};
+      const grad=ctx.createLinearGradient(
+        pA.x,pA.y,pB.x,pB.y
+      );
+      grad.addColorStop(0,"rgba(0,0,0,0)");
+      grad.addColorStop(.48,"rgba(0,0,0,.05)");
+      grad.addColorStop(.50,"rgba(0,0,0,.16)");
+      grad.addColorStop(.52,"rgba(255,255,255,.08)");
+      grad.addColorStop(1,"rgba(0,0,0,0)");
+      ctx.fillStyle=grad;
+      ctx.globalAlpha=.7*Math.sin(Math.PI*t);
       ctx.fillRect(0,0,rect.width,rect.height);
+      ctx.globalAlpha=1;
 
       if(raw<1)requestAnimationFrame(frame);
       else finish();
     };
 
     requestAnimationFrame(frame);
-    setTimeout(()=>{if(!ended)finish();},this.duration+450);
+    setTimeout(()=>{if(!ended)finish();},this.duration+500);
     return true;
   }
 };
