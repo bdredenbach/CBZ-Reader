@@ -23,15 +23,27 @@ window.LongboxNativePageTurn = class {
   }
 
   cornerAt(t, forward, w, h){
+    /*
+     * v59.17 — Natural Corner Arc
+     *
+     * The existing v59.11 corner path worked, but its motion was a little
+     * too uniform. Use a hand-like pull: quick initial travel, a deeper
+     * middle arc, then a gentle flattening as the corner approaches the
+     * spine. The landing still reaches exactly the same endpoint.
+     */
     const e=this.ease(t);
 
-    // The corner begins near the top outer edge, travels toward the spine,
-    // dips slightly, then rises into the landing. This is the only new
-    // geometric variable in this version.
-    const yNorm=.045 + .22*Math.sin(Math.PI*e);
+    // Cubic ease for the horizontal pull: faster early, softer at the end.
+    const xEase=1-Math.pow(1-e,1.18);
+
+    // The vertical component is asymmetric: a little quicker into the arc,
+    // then a longer, softer return toward the landing line.
+    const arc=Math.sin(Math.PI*Math.pow(e,.92));
+    const landingFade=Math.pow(e,1.15);
+    const yNorm=.045 + .255*arc*(1-.18*landingFade);
 
     return {
-      x: forward ? w*(1-.94*e) : w*(.94*e),
+      x: forward ? w*(1-.94*xEase) : w*(.94*xEase),
       y: h*yNorm
     };
   }
@@ -178,14 +190,16 @@ window.LongboxNativePageTurn = class {
         (t-settleStart)/(1-settleStart),0,1
       );
       if(settleT>0){
-        const settleWave=
+        // One restrained compression/release rather than a bounce:
+        // it gives the sheet a little mass without wobbling.
+        const microSettle=
           Math.sin(Math.PI*settleT) *
-          Math.exp(-2.2*settleT);
+          Math.exp(-3.4*settleT);
 
-        motion.yaw += (forward?-1:1)*.032*settleWave;
-        motion.pitch += (forward?1:-1)*.014*settleWave;
+        motion.yaw += (forward?-1:1)*.016*microSettle;
+        motion.pitch += (forward?1:-1)*.007*microSettle;
         motion.depth +=
-          Math.min(oldBox.w,oldBox.h)*.0025*settleWave;
+          Math.min(oldBox.w,oldBox.h)*.0012*microSettle;
       }
 
       /*
