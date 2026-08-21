@@ -755,6 +755,9 @@ const Reader = {
  next() {
 
 
+   this._deferredPanelTap = null;
+
+
    this.clearPanelFocusForNavigation();
    this.showChrome();
    if (this.mode === "single" && this.useTurnJSPageMode && this.turnPageMode?.book && this.scale <= 1.02) {
@@ -773,6 +776,8 @@ const Reader = {
  },
 
  prev() {
+
+   this._deferredPanelTap = null;
 
    this.clearPanelFocusForNavigation();
    this.showChrome();
@@ -1233,12 +1238,64 @@ const Reader = {
            }
 
            if (panelHit) {
-             // Immediate panel response, while preserving this tap as tap #1.
+             // Do not commit the frame immediately. Start bubble detection in
+             // parallel, remember this as tap #1, and give the reader a
+             // 450ms opportunity for a direct bubble double-tap.
              clearTimeout(pendingTapTimer);
              pendingTapTimer = null;
              lastTapTime = now;
              lastTapPos = pos;
-             this.handleSingleTap(pos);
+
+             const panelCtx = this.getPanelImageContext();
+             const panelImgRect = panelCtx?.rect;
+             const comicId = this.comic?.id;
+             const pageIndex = this.index;
+
+             if (this.bubbleAltZoomEnabled && panelCtx && panelImgRect) {
+               const relX = clamp(
+                 (pos.x - panelImgRect.left) / panelImgRect.width, 0, 1
+               );
+               const relY = clamp(
+                 (pos.y - panelImgRect.top) / panelImgRect.height, 0, 1
+               );
+
+               this._deferredPanelTap = {
+                 pos,
+                 comicId,
+                 pageIndex,
+                 promise: (async () => {
+                   try {
+                     const url = await this.getPageUrl(pageIndex);
+                     if (!url) return { bubble: null };
+
+                     const logger = this.debugMode
+                       ? (msg) => this.debugLog(`[bubble-deferred] ${msg}`)
+                       : null;
+
+                     const bubble = await BubbleDetect.extract(
+                       url, relX, relY, logger
+                     );
+
+                     return {
+                       bubble,
+                       imgRect: panelImgRect
+                     };
+                   } catch (_) {
+                     return { bubble: null };
+                   }
+                 })()
+               };
+             } else {
+               this._deferredPanelTap = null;
+             }
+
+             pendingTapTimer = setTimeout(() => {
+               pendingTapTimer = null;
+               lastTapTime = 0;
+               lastTapPos = null;
+               this._deferredPanelTap = null;
+               this.handleSingleTap(pos);
+             }, 450);
            } else {
              clearTimeout(pendingTapTimer);
              lastTapTime = now;
@@ -1328,8 +1385,45 @@ const Reader = {
    this.toggleChrome();
  },
 
+ async handleDeferredPanelDoubleTap(pos) {
+   const pending = this._deferredPanelTap;
+   if (!pending) return false;
+
+   this._deferredPanelTap = null;
+
+   try {
+     const result = await pending.promise;
+     if (!result || !result.bubble) {
+       // No bubble: the second tap is still allowed to produce the normal
+       // panel behavior rather than leaving the first tap in limbo.
+       this.handleSingleTap(pending.pos);
+       return true;
+     }
+
+     if (this.comic?.id !== pending.comicId ||
+         this.index !== pending.pageIndex) return true;
+
+     const stageRect = this.els.stage.getBoundingClientRect();
+     this.showBubbleOverlay(
+       result.bubble,
+       stageRect,
+       result.imgRect
+     );
+     return true;
+   } catch (_) {
+     // If detection fails, preserve the normal frame interaction.
+     this.handleSingleTap(pending.pos);
+     return true;
+   }
+ },
+
  async handleDoubleTap(pos) {
    if (this.mode !== "single") return;
+
+   if (this._deferredPanelTap) {
+     const handled = await this.handleDeferredPanelDoubleTap(pos);
+     if (handled) return;
+   }
 
    const stageRect = this.els.stage.getBoundingClientRect();
 
