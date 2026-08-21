@@ -715,8 +715,17 @@ const Reader = {
      this.render();
    }
  },
+  clearPanelFocusForNavigation() {
+    if (this.focusMode === "panel" || this.panelOverlayActive) {
+      this.resetZoom({ animate: false });
+    }
+  },
+
 
  next() {
+
+
+   this.clearPanelFocusForNavigation();
    this.showChrome();
    if (this.mode === "single" && this.useTurnJSPageMode && this.turnPageMode?.book && this.scale <= 1.02) {
      this.turnPageMode.next();
@@ -734,6 +743,8 @@ const Reader = {
  },
 
  prev() {
+
+   this.clearPanelFocusForNavigation();
    this.showChrome();
    if (this.mode === "single" && this.useTurnJSPageMode && this.turnPageMode?.book && this.scale <= 1.02) {
      this.turnPageMode.prev();
@@ -1155,6 +1166,7 @@ const Reader = {
            const dx = endTouch.clientX - panStart.x;
            const dy = endTouch.clientY - panStart.y;
            if (!this.focusMode && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+             if (this.focusMode === "panel") this.clearPanelFocusForNavigation();
              if (dx < 0) this.next(); else this.prev();
              panStart = null;
              wasPinching = false;
@@ -1482,7 +1494,11 @@ const Reader = {
  },
 
  async zoomToPanel(panel, stageRect, imgRect) {
-   if (this.focusMode) return;
+   if (this.focusMode === "panel") {
+     this.resetZoom({ animate: false });
+   } else if (this.focusMode) {
+     return;
+   }
    const token = ++this.panelOverlayToken;
    const img = this.els.viewport.querySelector("img");
    if (!img || !img.naturalWidth || !img.naturalHeight) return;
