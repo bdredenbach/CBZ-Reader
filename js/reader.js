@@ -1394,9 +1394,14 @@ const Reader = {
    try {
      const result = await pending.promise;
      if (!result || !result.bubble) {
-       // No bubble: the second tap is still allowed to produce the normal
-       // panel behavior rather than leaving the first tap in limbo.
-       this.handleSingleTap(pending.pos);
+       // No bubble: because this was a genuine double tap on an already
+       // focused frame, dismiss the frame instead of sending the tap back
+       // through handleSingleTap() (which would hit the same focused panel).
+       if (this.focusMode === "panel") {
+         this.resetZoom({ animate: true });
+       } else {
+         this.handleSingleTap(pending.pos);
+       }
        return true;
      }
 
@@ -1419,6 +1424,14 @@ const Reader = {
 
  async handleDoubleTap(pos) {
    if (this.mode !== "single") return;
+
+   // An active bubble owns the next double-tap. Do this BEFORE checking any
+   // deferred panel tap, otherwise the bubble can become impossible to close.
+   if (this.bubbleOverlayActive) {
+     this._deferredPanelTap = null;
+     this.removeBubbleOverlay(true);
+     return;
+   }
 
    if (this._deferredPanelTap) {
      const handled = await this.handleDeferredPanelDoubleTap(pos);
