@@ -1179,15 +1179,37 @@ const Reader = {
            lastTapPos = null;
            this.handleDoubleTap(pos);
          } else {
-           clearTimeout(pendingTapTimer);
-           lastTapTime = now;
-           lastTapPos = pos;
-           pendingTapTimer = setTimeout(() => {
+           // A single tap on a detected panel is an intentional reader
+           // action, so don't make it wait behind the double-tap window.
+           // Non-panel taps retain the existing 280ms double-tap behavior.
+           let panelHit = false;
+           if (this.mode === "single" && this.panelZoomEnabled) {
+             const img = this.els.viewport.querySelector("img");
+             const imgRect = img ? img.getBoundingClientRect() : null;
+             if (imgRect && imgRect.width > 0 && imgRect.height > 0) {
+               const relX = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
+               const relY = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
+               panelHit = !!this.findPanelAt(relX, relY);
+             }
+           }
+
+           if (panelHit) {
+             clearTimeout(pendingTapTimer);
              pendingTapTimer = null;
              lastTapTime = 0;
              lastTapPos = null;
              this.handleSingleTap(pos);
-           }, 280);
+           } else {
+             clearTimeout(pendingTapTimer);
+             lastTapTime = now;
+             lastTapPos = pos;
+             pendingTapTimer = setTimeout(() => {
+               pendingTapTimer = null;
+               lastTapTime = 0;
+               lastTapPos = null;
+               this.handleSingleTap(pos);
+             }, 280);
+           }
          }
        }
        panStart = null;
