@@ -372,6 +372,35 @@ const Reader = {
    if (logger) logger(`currentPanels set: ${panels.length}`);
  },
 
+ getPanelImageContext() {
+   // Turn.js keeps multiple page images in the viewport. Resolve the image
+   // belonging to the page Turn.js says is currently visible.
+   if (this.mode === "single" &&
+       this.useTurnJSPageMode &&
+       this.turnPageMode?.book) {
+     try {
+       const book = this.turnPageMode.book;
+       const view = book.turn("view");
+       const pageNumber = Array.isArray(view) ? Number(view[0]) : Number(view);
+       const data = book.data();
+       const pageObj = data?.pageObjs?.[pageNumber];
+       const img = pageObj?.find?.("img")?.get?.(0);
+       if (img) {
+         const rect = img.getBoundingClientRect();
+         if (rect.width > 1 && rect.height > 1) {
+           return { img, rect, pageNumber };
+         }
+       }
+     } catch (_) {}
+   }
+   const img = this.els.viewport.querySelector("img");
+   const rect = img?.getBoundingClientRect();
+   if (img && rect && rect.width > 1 && rect.height > 1) {
+     return { img, rect, pageNumber: this.index + 1 };
+   }
+   return null;
+ },
+
  findPanelAt(relX, relY) {
    if (!this.panelZoomEnabled) return null;
    for (const p of this.currentPanels) {
@@ -1191,48 +1220,33 @@ const Reader = {
            lastTapPos = null;
            this.handleDoubleTap(pos);
          } else {
-           // Panel zoom needs the detected panel list. On a freshly rendered
-           // page that list can still be loading, so don't let an "instant"
-           // hit test accidentally turn every panel tap into a plain tap.
-           const tryPanelTap = () => {
-             if (this.mode !== "single" || !this.panelZoomEnabled) return false;
-             const img = this.els.viewport.querySelector("img");
-             const imgRect = img ? img.getBoundingClientRect() : null;
-             if (!imgRect || imgRect.width <= 0 || imgRect.height <= 0) return false;
-             const relX = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
-             const relY = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
-             const panel = this.findPanelAt(relX, relY);
-             if (!panel) return false;
+           let panelHit = false;
+           if (this.mode === "single" && this.panelZoomEnabled) {
+             const ctx = this.getPanelImageContext();
+             if (ctx) {
+               const relX = clamp((pos.x - ctx.rect.left) / ctx.rect.width, 0, 1);
+               const relY = clamp((pos.y - ctx.rect.top) / ctx.rect.height, 0, 1);
+               panelHit = !!this.findPanelAt(relX, relY);
+             }
+           }
 
+           if (panelHit) {
+             // Immediate panel response, while preserving this tap as tap #1.
              clearTimeout(pendingTapTimer);
              pendingTapTimer = null;
-             lastTapTime = 0;
-             lastTapPos = null;
+             lastTapTime = now;
+             lastTapPos = pos;
              this.handleSingleTap(pos);
-             return true;
-           };
-
-           // If detection is already ready, panel taps remain immediate.
-           if (!tryPanelTap()) {
+           } else {
              clearTimeout(pendingTapTimer);
              lastTapTime = now;
              lastTapPos = pos;
-
-             // Give a newly completed panel-detection pass a short chance
-             // to answer before falling back to the original double-tap wait.
-             let panelProbeTimer = setTimeout(() => {
-               panelProbeTimer = null;
-               if (!tryPanelTap()) {
-                 pendingTapTimer = setTimeout(() => {
-                   pendingTapTimer = null;
-                   lastTapTime = 0;
-                   lastTapPos = null;
-                   this.handleSingleTap(pos);
-                 }, 200);
-               }
-             }, 80);
-
-             pendingTapTimer = panelProbeTimer;
+             pendingTapTimer = setTimeout(() => {
+               pendingTapTimer = null;
+               lastTapTime = 0;
+               lastTapPos = null;
+               this.handleSingleTap(pos);
+             }, 280);
            }
          }
        }
@@ -1292,9 +1306,10 @@ const Reader = {
    if (this.mode !== "single" || this.scale > 1.02) return;
 
    const stageRect = this.els.stage.getBoundingClientRect();
-   const img = this.els.viewport.querySelector("img");
-   const imgRect = img ? img.getBoundingClientRect() : stageRect;
-   if (!imgRect.width || !imgRect.height) {
+   const ctx = this.getPanelImageContext();
+   const img = ctx?.img;
+   const imgRect = ctx?.rect || stageRect;
+   if (!img || !imgRect.width || !imgRect.height) {
      this.toggleChrome();
      return;
    }
@@ -1494,13 +1509,10 @@ const Reader = {
  },
 
  async zoomToPanel(panel, stageRect, imgRect) {
-   if (this.focusMode === "panel") {
-     this.resetZoom({ animate: false });
-   } else if (this.focusMode) {
-     return;
-   }
+   if (this.focusMode) return;
    const token = ++this.panelOverlayToken;
-   const img = this.els.viewport.querySelector("img");
+   const ctx = this.getPanelImageContext();
+   const img = ctx?.img;
    if (!img || !img.naturalWidth || !img.naturalHeight) return;
 
    this.focusMode = "panel";
