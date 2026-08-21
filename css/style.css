@@ -1402,9 +1402,3 @@ button.reader-btn.mini-btn {
   z-index: 4 !important;
 }
 
-/* v59.35: the experimental straight-fold layer is a sibling of the
-   Turn.js host, so Turn.js page z-indexes cannot cover it. */
-.cbz-straight-fold-layer {
-  z-index: 4 !important;
-  pointer-events: none;
-}
