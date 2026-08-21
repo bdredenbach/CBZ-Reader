@@ -1179,36 +1179,48 @@ const Reader = {
            lastTapPos = null;
            this.handleDoubleTap(pos);
          } else {
-           // A single tap on a detected panel is an intentional reader
-           // action, so don't make it wait behind the double-tap window.
-           // Non-panel taps retain the existing 280ms double-tap behavior.
-           let panelHit = false;
-           if (this.mode === "single" && this.panelZoomEnabled) {
+           // Panel zoom needs the detected panel list. On a freshly rendered
+           // page that list can still be loading, so don't let an "instant"
+           // hit test accidentally turn every panel tap into a plain tap.
+           const tryPanelTap = () => {
+             if (this.mode !== "single" || !this.panelZoomEnabled) return false;
              const img = this.els.viewport.querySelector("img");
              const imgRect = img ? img.getBoundingClientRect() : null;
-             if (imgRect && imgRect.width > 0 && imgRect.height > 0) {
-               const relX = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
-               const relY = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
-               panelHit = !!this.findPanelAt(relX, relY);
-             }
-           }
+             if (!imgRect || imgRect.width <= 0 || imgRect.height <= 0) return false;
+             const relX = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
+             const relY = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
+             const panel = this.findPanelAt(relX, relY);
+             if (!panel) return false;
 
-           if (panelHit) {
              clearTimeout(pendingTapTimer);
              pendingTapTimer = null;
              lastTapTime = 0;
              lastTapPos = null;
              this.handleSingleTap(pos);
-           } else {
+             return true;
+           };
+
+           // If detection is already ready, panel taps remain immediate.
+           if (!tryPanelTap()) {
              clearTimeout(pendingTapTimer);
              lastTapTime = now;
              lastTapPos = pos;
-             pendingTapTimer = setTimeout(() => {
-               pendingTapTimer = null;
-               lastTapTime = 0;
-               lastTapPos = null;
-               this.handleSingleTap(pos);
-             }, 280);
+
+             // Give a newly completed panel-detection pass a short chance
+             // to answer before falling back to the original double-tap wait.
+             let panelProbeTimer = setTimeout(() => {
+               panelProbeTimer = null;
+               if (!tryPanelTap()) {
+                 pendingTapTimer = setTimeout(() => {
+                   pendingTapTimer = null;
+                   lastTapTime = 0;
+                   lastTapPos = null;
+                   this.handleSingleTap(pos);
+                 }, 200);
+               }
+             }, 80);
+
+             pendingTapTimer = panelProbeTimer;
            }
          }
        }
