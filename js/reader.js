@@ -196,8 +196,17 @@ const Reader = {
       this.debugLog("Turn.js Page Mode unavailable; using normal page renderer.");
     }
 
-   // Restore the normal viewport display before non-Turn paged rendering.
-   this.els.viewport.style.display = "";
+   // Restore the shared viewport's paged layout explicitly. Continuous
+   // modes use max-content/scroll geometry; those styles must not leak into
+   // Spread Mode after a mode switch.
+   this.els.viewport.style.display = "flex";
+   this.els.viewport.style.width = "100%";
+   this.els.viewport.style.height = "100%";
+   this.els.viewport.style.transform = "none";
+   this.els.viewport.scrollLeft = 0;
+   this.els.viewport.scrollTop = 0;
+   this.els.stage.scrollLeft = 0;
+   this.els.stage.scrollTop = 0;
 
    const indices = this.mode === "spread"
      ? [this.index, this.index + 1].filter(i => i < this.comic.pageCount)
@@ -249,6 +258,23 @@ const Reader = {
    this.debugLog(`continuous layout settled: ${this.mode} ${width}x${height}`);
  },
 
+ async loadContinuousPage(i) {
+   if (i < 0 || i >= this.comic.pageCount) return;
+   const wrap = this.els.stage.querySelector(`.scroll-page[data-index="${i}"]`);
+   if (!wrap) return;
+   const img = wrap.querySelector("img");
+   if (!img || img.dataset.src !== "pending") return;
+
+   img.dataset.src = "loading";
+   const url = await this.getPageUrl(i);
+   if (!url) {
+     img.dataset.src = "pending";
+     return;
+   }
+   img.src = url;
+   if (img.decode) await img.decode().catch(() => {});
+ },
+
  async renderContinuous() {
    await this.stabilizeContinuousLayout();
    const horizontal = this.mode === "scroll" || this.mode === "manga";
@@ -287,16 +313,14 @@ const Reader = {
      `.scroll-page[data-index="${this.index}"]`
    );
    if (currentWrap) {
-     const currentImg = currentWrap.querySelector("img");
-     if (currentImg && currentImg.dataset.src === "pending") {
-       currentImg.dataset.src = "loading";
-       const currentUrl = await this.getPageUrl(this.index);
-       if (currentUrl) {
-         currentImg.src = currentUrl;
-         if (currentImg.decode) {
-           await currentImg.decode().catch(() => {});
-         }
-       }
+     await this.loadContinuousPage(this.index);
+
+     // Keep several real pages ahead of the scroll position. Pending pages
+     // have zero width; without a look-ahead the horizontal scroll can lose
+     // its geometry before the next page becomes observable.
+     const ahead = horizontal ? 3 : 1;
+     for (let n = 1; n <= ahead; n++) {
+       this.loadContinuousPage(this.index + n);
      }
    }
 
@@ -305,12 +329,15 @@ const Reader = {
        const wrap = entry.target;
        const i = parseInt(wrap.dataset.index, 10);
        if (entry.isIntersecting) {
-         const img = wrap.querySelector("img");
-         if (img.dataset.src === "pending") {
-           img.dataset.src = "loading";
-           const url = await this.getPageUrl(i);
-           if (url) img.src = url;
+         await this.loadContinuousPage(i);
+
+         // Extend the real scrollable track before the reader reaches its
+         // end. This is especially important for horizontal Scroll Mode.
+         const ahead = horizontal ? 3 : 1;
+         for (let n = 1; n <= ahead; n++) {
+           this.loadContinuousPage(i + n);
          }
+
          this.index = i;
          this.updateSliderLabel();
          this.updateBookmarkFlag();
@@ -605,9 +632,15 @@ const Reader = {
    const width = this.els.stage.clientWidth;
    const height = this.els.stage.clientHeight;
    if (width > 0 && height > 0) {
+     this.els.viewport.style.display = "flex";
      this.els.viewport.style.width = `${width}px`;
      this.els.viewport.style.height = `${height}px`;
+     this.els.viewport.style.transform = "none";
+     this.els.viewport.style.alignItems = "center";
+     this.els.viewport.style.justifyContent = "center";
    }
+   this.els.stage.scrollLeft = 0;
+   this.els.stage.scrollTop = 0;
    this.debugLog(`spread layout settled: ${width}x${height}`);
  },
 
