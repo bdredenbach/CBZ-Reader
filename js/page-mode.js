@@ -19,7 +19,6 @@ window.LongboxPageMode = (() => {
       this.pageCount = 0;
       this._boundResize = () => this.resize();
       this._gesture = null;
-      this._straightFold = null;
       this._boundGestureStart = (e) => this._gestureStart(e);
       this._boundGestureMove = (e) => this._gestureMove(e);
       this._boundGestureEnd = (e) => this._gestureEnd(e);
@@ -36,7 +35,6 @@ window.LongboxPageMode = (() => {
       this.pageCount = 0;
       window.removeEventListener("resize", this._boundResize);
       this._removeGestureGrab();
-      this._removeStraightFoldLayer();
       if (this.host) {
         this.host.innerHTML = "";
 
@@ -159,7 +157,6 @@ window.LongboxPageMode = (() => {
       this.book = $book;
       this.issueKey = issueKey;
       this._installGestureGrab(book);
-      this._installStraightFoldLayer();
       this.onState("ready=1");
 
       $book.bind("turned", (_event, page) => {
@@ -229,118 +226,6 @@ window.LongboxPageMode = (() => {
       this._gesture = null;
     }
 
-    _installStraightFoldLayer() {
-      if (!this._gestureBook || this._straightFold) return;
-      const layer = document.createElement("div");
-      layer.className = "cbz-straight-fold-layer";
-      layer.style.cssText =
-        "position:absolute;inset:0;z-index:6;pointer-events:none;" +
-        "display:none;overflow:hidden;perspective:1400px;";
-      this._gestureBook.appendChild(layer);
-      this._straightFold = { layer, active: false };
-    }
-
-    _removeStraightFoldLayer() {
-      if (this._straightFold?.layer) this._straightFold.layer.remove();
-      this._straightFold = null;
-    }
-
-    _straightFoldStart(direction, x, y) {
-      const sf = this._straightFold;
-      if (!sf) return false;
-
-      const host = this._gestureBook;
-      const img = host.querySelector(".page img, img");
-      if (!img) return false;
-
-      const rect = host.getBoundingClientRect();
-      const source = img.currentSrc || img.src;
-      if (!source) return false;
-
-      sf.layer.innerHTML = "";
-      sf.direction = direction;
-      sf.x0 = x;
-      sf.width = rect.width;
-      sf.height = rect.height;
-      sf.source = source;
-
-      // Static back copy on the stationary side.
-      const back = document.createElement("div");
-      back.style.cssText =
-        "position:absolute;inset:0;background:#fff url('" + source +
-        "') center/contain no-repeat;transform:none;";
-
-      // Folded sheet. Its left/right edge is the moving crease.
-      const fold = document.createElement("div");
-      fold.className = "cbz-straight-fold-sheet";
-      fold.style.cssText =
-        "position:absolute;top:0;width:100%;height:100%;" +
-        "background:#fff url('" + source + "') center/contain no-repeat;" +
-        "transform-origin:" + (direction === "next" ? "left center" : "right center") + ";" +
-        "backface-visibility:hidden;" +
-        "box-shadow:0 0 18px rgba(0,0,0,.16);" +
-        "will-change:transform,clip-path;";
-
-      sf.layer.appendChild(back);
-      sf.layer.appendChild(fold);
-      sf.back = back;
-      sf.fold = fold;
-      sf.active = true;
-      sf.layer.style.display = "block";
-      this._straightFoldMove(x);
-      return true;
-    }
-
-    _straightFoldMove(x) {
-      const sf = this._straightFold;
-      if (!sf?.active || !sf.fold) return;
-
-      const w = sf.width;
-      const dx = x - sf.x0;
-      const travel = Math.max(-w, Math.min(w, dx));
-
-      // A middle grab is represented as a flat sheet rotating around a
-      // vertical crease. This deliberately avoids Turn.js's corner curl.
-      let progress = Math.max(0, Math.min(1,
-        Math.abs(travel) / Math.max(1, w)));
-      const angle = (sf.direction === "next" ? -1 : 1) * progress * 170;
-
-      sf.fold.style.transform =
-        "translateX(" + travel + "px) rotateY(" + angle + "deg)";
-
-      const shadow = Math.min(.32, .06 + progress * .26);
-      sf.fold.style.boxShadow =
-        (sf.direction === "next" ? "-" : "") +
-        "8px 0 18px rgba(0,0,0," + shadow.toFixed(3) + ")";
-    }
-
-    _straightFoldEnd(commit) {
-      const sf = this._straightFold;
-      if (!sf?.active) return;
-
-      if (commit) {
-        sf.fold.style.transition =
-          "transform 180ms cubic-bezier(.22,.61,.36,1)";
-        const final = sf.direction === "next" ? -180 : 180;
-        sf.fold.style.transform =
-          "translateX(" + (sf.direction === "next" ? sf.width : -sf.width) +
-          "px) rotateY(" + final + "deg)";
-      } else {
-        sf.fold.style.transition =
-          "transform 180ms cubic-bezier(.22,.61,.36,1)";
-        sf.fold.style.transform = "translateX(0) rotateY(0deg)";
-      }
-
-      const layer = sf.layer;
-      setTimeout(() => {
-        if (layer === this._straightFold?.layer) {
-          layer.style.display = "none";
-          layer.innerHTML = "";
-          this._straightFold.active = false;
-        }
-      }, 200);
-    }
-
     _gestureStart(e) {
       if (!this.book || !this._gestureBook) return;
       const p = e.touches?.[0] || e;
@@ -367,7 +252,8 @@ window.LongboxPageMode = (() => {
         lastY: p.clientY,
         active: true,
         triggered: false,
-        middle: true
+        middle: true,
+        intentStarted: performance.now()
       };
     }
 
@@ -385,47 +271,59 @@ window.LongboxPageMode = (() => {
       if (!g.triggered) {
         if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
 
+        // Give a deliberate drag a tiny settling window before engaging the
+        // page-turn physics. This is short enough to feel immediate but helps
+        // distinguish a purposeful grab from a quick touch.
+        if (performance.now() - g.intentStarted < 90) return;
+      }
+
+      const rect = this._gestureBook.getBoundingClientRect();
+      let localDx = dx;
+      if (g.triggered) {
+        const resistance = Math.min(Math.abs(localDx), 18) * 0.25;
+        localDx += localDx < 0 ? resistance : -resistance;
+      }
+
+      const x = Math.max(1, Math.min(rect.width - 1, g.x0 + localDx - rect.left));
+      const y = Math.max(1, Math.min(rect.height - 1, p.clientY - rect.top));
+
+      if (!g.triggered) {
         g.triggered = true;
         g.direction = dx < 0 ? "next" : "prev";
-
-        const rect = this._gestureBook.getBoundingClientRect();
-        const x = p.clientX - rect.left;
-        const y = p.clientY - rect.top;
-
-        if (!this._straightFoldStart(g.direction, x, y)) {
-          g.triggered = false;
-          return;
+        g.flipStarted = true;
+        try {
+          if (g.direction === "next") this.book.turn("next");
+          else this.book.turn("previous");
+        } catch (_) {
+          g.flipStarted = false;
         }
-
-        // Keep the real Turn.js engine out of the way for the middle grab.
-        // Corner grabs still use Turn.js's native physics.
-        e.preventDefault();
-        return;
       }
 
-      if (g.middle && this._straightFold?.active) {
-        const rect = this._gestureBook.getBoundingClientRect();
-        this._straightFoldMove(
-          Math.max(1, Math.min(rect.width - 1, p.clientX - rect.left))
-        );
-        e.preventDefault();
-      }
+      if (!g.flipStarted) return;
+
+      try {
+        const data = this.book.data("f");
+        const controller = data && (data.f || data.flip);
+        if (controller && typeof controller._turnPage === "function") {
+          controller._turnPage({x, y});
+        } else if (controller && typeof controller._moveFoldingPage === "function") {
+          controller._moveFoldingPage({x, y});
+        }
+      } catch (_) {}
+
+      e.preventDefault();
     }
 
     _gestureEnd() {
       const g = this._gesture;
-      if (g && g.triggered && g.middle && this._straightFold?.active) {
-        const rect = this._gestureBook.getBoundingClientRect();
+      if (g && g.triggered && this.book) {
+        const rect = this._gestureBook?.getBoundingClientRect();
         const dx = g.lastX - g.x0;
-        const commit = Math.abs(dx) > Math.max(90, rect.width * 0.30);
-
-        this._straightFoldEnd(commit);
-
-        // Synchronize the reader after the visual experiment commits.
-        if (commit) {
-          if (g.direction === "next") this.onPageChanged(this.getIndex() + 1);
-          else this.onPageChanged(this.getIndex() - 1);
-        }
+        const width = rect?.width || window.innerWidth;
+        const commit = Math.abs(dx) > Math.max(90, width * 0.30);
+        try {
+          this.book.turn("grabEnd", commit);
+        } catch (_) {}
       }
       this._gesture = null;
     }
