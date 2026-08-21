@@ -1238,14 +1238,22 @@ const Reader = {
            }
 
            if (panelHit) {
-             // Do not commit the frame immediately. Start bubble detection in
-             // parallel, remember this as tap #1, and give the reader a
-             // 450ms opportunity for a direct bubble double-tap.
              clearTimeout(pendingTapTimer);
              pendingTapTimer = null;
              lastTapTime = now;
              lastTapPos = pos;
 
+             // Once a frame is already focused, do NOT create another
+             // deferred panel candidate. The next tap belongs to the
+             // focused-frame interaction: bubble detection gets a chance,
+             // and if no bubble is found the frame is dismissed.
+             if (this.focusMode === "panel") {
+               this._deferredPanelTap = null;
+               return;
+             }
+
+             // Unfocused panel: defer commitment so a direct bubble
+             // double-tap can win before the frame opens.
              const panelCtx = this.getPanelImageContext();
              const panelImgRect = panelCtx?.rect;
              const comicId = this.comic?.id;
@@ -1490,6 +1498,9 @@ const Reader = {
          this.setFocusDim(false, false);
          this.showBubbleOverlay(bubble, stageRect, imgRect);
        } else {
+         // No bubble at the double-tapped location: the focused frame owns
+         // this interaction, so close it.
+         this._deferredPanelTap = null;
          this.resetZoom({ animate: true });
        }
        return;
