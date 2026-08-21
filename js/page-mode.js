@@ -270,46 +270,35 @@ window.LongboxPageMode = (() => {
 
       if (!g.triggered) {
         if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-
-        // Give a deliberate drag a tiny settling window before engaging the
-        // page-turn physics. This is short enough to feel immediate but helps
-        // distinguish a purposeful grab from a quick touch.
         if (performance.now() - g.intentStarted < 90) return;
       }
 
       const rect = this._gestureBook.getBoundingClientRect();
       let localDx = dx;
+      // Small amount of resistance just after the gesture begins makes the
+      // sheet feel less twitchy and prevents tiny finger movements from
+      // throwing the fold around.
       if (g.triggered) {
         const resistance = Math.min(Math.abs(localDx), 18) * 0.25;
         localDx += localDx < 0 ? resistance : -resistance;
       }
-
       const x = Math.max(1, Math.min(rect.width - 1, g.x0 + localDx - rect.left));
       const y = Math.max(1, Math.min(rect.height - 1, p.clientY - rect.top));
 
       if (!g.triggered) {
+        if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+
         g.triggered = true;
         g.direction = dx < 0 ? "next" : "prev";
-        g.flipStarted = true;
-        try {
-          if (g.direction === "next") this.book.turn("next");
-          else this.book.turn("previous");
-        } catch (_) {
-          g.flipStarted = false;
+
+        const started = this.book.turn("grabStart", x, y, g.direction);
+        if (!started) {
+          g.triggered = false;
+          return;
         }
+      } else {
+        this.book.turn("grabMove", x, y);
       }
-
-      if (!g.flipStarted) return;
-
-      try {
-        const data = this.book.data("f");
-        const controller = data && (data.f || data.flip);
-        if (controller && typeof controller._turnPage === "function") {
-          controller._turnPage({x, y});
-        } else if (controller && typeof controller._moveFoldingPage === "function") {
-          controller._moveFoldingPage({x, y});
-        }
-      } catch (_) {}
 
       e.preventDefault();
     }
@@ -320,6 +309,8 @@ window.LongboxPageMode = (() => {
         const rect = this._gestureBook?.getBoundingClientRect();
         const dx = g.lastX - g.x0;
         const width = rect?.width || window.innerWidth;
+        // Commit after pulling roughly a quarter of the sheet; otherwise
+        // let Turn.js spring the page back.
         const commit = Math.abs(dx) > Math.max(90, width * 0.30);
         try {
           this.book.turn("grabEnd", commit);
@@ -327,6 +318,7 @@ window.LongboxPageMode = (() => {
       }
       this._gesture = null;
     }
+
 
     resize() {
       if (!this.book || !this.host) return;
