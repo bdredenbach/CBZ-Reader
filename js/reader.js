@@ -315,11 +315,16 @@ const Reader = {
    if (currentWrap) {
      await this.loadContinuousPage(this.index);
 
-     // Keep several real pages ahead of the scroll position. Pending pages
-     // have zero width; without a look-ahead the horizontal scroll can lose
-     // its geometry before the next page becomes observable.
-     const ahead = horizontal ? 3 : 1;
-     for (let n = 1; n <= ahead; n++) {
+     // Keep a symmetric real-page window around the current page. Pending
+     // wrappers have zero width; loading only forward makes a re-entered
+     // Scroll/Manga reader unable to move backward because the pages behind
+     // the current index contribute no scrollable geometry.
+     const lookBehind = horizontal ? 3 : 1;
+     const lookAhead = horizontal ? 3 : 1;
+     for (let n = 1; n <= lookBehind; n++) {
+       this.loadContinuousPage(this.index - n);
+     }
+     for (let n = 1; n <= lookAhead; n++) {
        this.loadContinuousPage(this.index + n);
      }
    }
@@ -331,10 +336,15 @@ const Reader = {
        if (entry.isIntersecting) {
          await this.loadContinuousPage(i);
 
-         // Extend the real scrollable track before the reader reaches its
-         // end. This is especially important for horizontal Scroll Mode.
-         const ahead = horizontal ? 3 : 1;
-         for (let n = 1; n <= ahead; n++) {
+         // Extend the real scrollable track in BOTH directions. This is
+         // especially important after re-entering Scroll/Manga at a later
+         // page, where the previous wrappers may still be zero-width.
+         const lookBehind = horizontal ? 3 : 1;
+         const lookAhead = horizontal ? 3 : 1;
+         for (let n = 1; n <= lookBehind; n++) {
+           this.loadContinuousPage(i - n);
+         }
+         for (let n = 1; n <= lookAhead; n++) {
            this.loadContinuousPage(i + n);
          }
 
