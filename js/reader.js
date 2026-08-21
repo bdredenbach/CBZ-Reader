@@ -442,6 +442,7 @@ const Reader = {
    this.panelOverlayToken++;
    const overlay = this.els.panelOverlay;
    if (!overlay) {
+     this.panelFocusMeta = null;
      this.panelOverlayActive = false;
      if (this.focusMode === "panel") this.focusMode = null;
      return;
@@ -823,6 +824,7 @@ const Reader = {
 
  resetZoom(opts = {}) {
    const animate = opts.animate !== false;
+   this.panelFocusMeta = null;
    this.removePanelOverlay(animate);
    this.removeBubbleOverlay();
    this.focusMode = null;
@@ -1330,27 +1332,74 @@ const Reader = {
    if (this.mode !== "single") return;
 
    const stageRect = this.els.stage.getBoundingClientRect();
-   if (this.focusMode === "panel") {
-     this.resetZoom({ animate: true });
+
+   if (!this.bubbleAltZoomEnabled) {
+     if (this.focusMode === "panel") this.resetZoom({ animate: true });
      return;
    }
-   if (!this.bubbleAltZoomEnabled) return;
+
    if (this.bubbleOverlayActive) {
      this.removeBubbleOverlay(true);
      return;
    }
 
-   const img = this.els.viewport.querySelector("img");
-   const imgRect = img ? img.getBoundingClientRect() : stageRect;
-   if (!imgRect.width || !imgRect.height) return;
-   const relXImg = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
-   const relYImg = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
-
    const comicId = this.comic?.id;
    const pageIndex = this.index;
    const url = await this.getPageUrl(pageIndex);
    if (!url) return;
-   const logger = this.debugMode ? (msg) => this.debugLog(`[bubble-alt] ${msg}`) : null;
+
+   const logger = this.debugMode
+     ? (msg) => this.debugLog(`[bubble-alt] ${msg}`)
+     : null;
+
+   // IMPORTANT: when a panel is already popped out, the tap is landing on
+   // the enlarged panel overlay. Map that screen coordinate back through the
+   // panel crop to the original comic page before running BubbleDetect.
+   if (this.focusMode === "panel" &&
+       this.panelOverlayActive &&
+       this.panelFocusMeta &&
+       this.els.panelOverlay) {
+     const overlayRect = this.els.panelOverlay.getBoundingClientRect();
+     if (overlayRect.width > 1 && overlayRect.height > 1) {
+       const localX = clamp((pos.x - overlayRect.left) / overlayRect.width, 0, 1);
+       const localY = clamp((pos.y - overlayRect.top) / overlayRect.height, 0, 1);
+       const panel = this.panelFocusMeta.panel;
+       const pageRelX = clamp(panel.x + localX * panel.w, 0, 1);
+       const pageRelY = clamp(panel.y + localY * panel.h, 0, 1);
+
+       const bubble = await BubbleDetect.extract(
+         url, pageRelX, pageRelY, logger
+       );
+
+       if (!this.comic || this.comic.id !== comicId || this.index !== pageIndex) return;
+
+       if (bubble) {
+         // Return to the real page geometry for the bubble overlay, then put
+         // the detected bubble on top as the new focus owner.
+         const ctx = this.getPanelImageContext();
+         const imgRect = ctx?.rect || stageRect;
+         this.removePanelOverlay(false);
+         this.focusMode = null;
+         this.setFocusDim(false, false);
+         this.showBubbleOverlay(bubble, stageRect, imgRect);
+       } else {
+         this.resetZoom({ animate: true });
+       }
+       return;
+     }
+
+     this.resetZoom({ animate: true });
+     return;
+   }
+
+   // Normal page (no panel focus): use the actual Turn.js-visible image.
+   const ctx = this.getPanelImageContext();
+   const imgRect = ctx?.rect || stageRect;
+   if (!imgRect.width || !imgRect.height) return;
+
+   const relXImg = clamp((pos.x - imgRect.left) / imgRect.width, 0, 1);
+   const relYImg = clamp((pos.y - imgRect.top) / imgRect.height, 0, 1);
+
    const bubble = await BubbleDetect.extract(url, relXImg, relYImg, logger);
    if (!this.comic || this.comic.id !== comicId || this.index !== pageIndex) return;
 
@@ -1533,6 +1582,11 @@ const Reader = {
    const sy = panel.y * img.naturalHeight;
    const sw = panel.w * img.naturalWidth;
    const sh = panel.h * img.naturalHeight;
+
+   this.panelFocusMeta = {
+     panel: { x: panel.x, y: panel.y, w: panel.w, h: panel.h },
+     pageIndex: this.index
+   };
 
    const overlay = document.createElement("div");
    overlay.className = "panel-focus-overlay";
