@@ -202,9 +202,9 @@ BubbleDetect._floodFill = function(img, w, h, data, relX, relY, log, wantMask = 
     let seedX = tapX, seedY = tapY;
 
     if (!isBright(seedX, seedY)) {
-      const found = nearestBright(seedX, seedY, w, h, isBright, 40);
+      const found = nearestBright(seedX, seedY, w, h, isBright, 14);
       if (!found) {
-        if (log) log(`try threshold=${threshold}: no bright seed within 40px`);
+        if (log) log(`try threshold=${threshold}: no bright seed within 14px`);
         continue;
       }
       seedX = found.x; seedY = found.y;
@@ -271,6 +271,49 @@ BubbleDetect._floodFill = function(img, w, h, data, relX, relY, log, wantMask = 
     // Avoid accepting an enormous, thin light strip as a speech bubble.
     if ((bw > w * 0.92 && bh < h * 0.08) || (bh > h * 0.92 && bw < w * 0.08)) {
       if (log) log(`try threshold=${threshold}: rejected thin page-wide region ${bw}x${bh}`);
+      continue;
+    }
+
+    // False-positive guard: an ordinary light area of the artwork can be a
+    // huge connected component. Speech bubbles are usually bounded and have
+    // a dark outline. Reject very large components before accepting them.
+    if (bw > w * 0.62 || bh > h * 0.42) {
+      if (log) log(`try threshold=${threshold}: rejected oversized candidate ${bw}x${bh}`);
+      continue;
+    }
+
+    // Check a narrow ring just outside the candidate for dark outline
+    // evidence. This is deliberately a soft score so colored/aged bubbles
+    // still work, while open background regions are much less likely to pass.
+    const ringPad = Math.max(2, Math.round(Math.min(w, h) * 0.006));
+    let ringSamples = 0, darkRing = 0;
+    const darkLum = threshold - 28;
+    const sampleStep = Math.max(1, Math.round(Math.min(bw, bh) / 120));
+    for (let xx = minX; xx <= maxX; xx += sampleStep) {
+      const yTop = minY - ringPad, yBot = maxY + ringPad;
+      if (yTop >= 0) {
+        ringSamples++;
+        if (lumAt(xx, yTop) < darkLum) darkRing++;
+      }
+      if (yBot < h) {
+        ringSamples++;
+        if (lumAt(xx, yBot) < darkLum) darkRing++;
+      }
+    }
+    for (let yy = minY; yy <= maxY; yy += sampleStep) {
+      const xLeft = minX - ringPad, xRight = maxX + ringPad;
+      if (xLeft >= 0) {
+        ringSamples++;
+        if (lumAt(xLeft, yy) < darkLum) darkRing++;
+      }
+      if (xRight < w) {
+        ringSamples++;
+        if (lumAt(xRight, yy) < darkLum) darkRing++;
+      }
+    }
+    const outlineScore = ringSamples ? darkRing / ringSamples : 0;
+    if (outlineScore < 0.10) {
+      if (log) log(`try threshold=${threshold}: rejected weak bubble outline score=${outlineScore.toFixed(2)}`);
       continue;
     }
 
