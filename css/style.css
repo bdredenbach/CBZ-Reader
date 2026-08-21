@@ -689,7 +689,7 @@ button.reader-btn.mini-btn {
 /* ===== Focus zoom transitions ===== */
 .reader-focus-dim {
   position: absolute; inset: 0;
-  background: rgba(0,0,0,0.90);
+  background: rgba(0,0,0,0.95);
   opacity: 0; pointer-events: none;
   z-index: 11;
   transition: opacity 340ms cubic-bezier(0.22,0.78,0.24,1);
