@@ -1432,6 +1432,7 @@ button.reader-btn.mini-btn {
   height: 100%;
 }
 .reader-stage.mode-two-page .two-page-page {
+  position: relative;
   flex: 0 1 50%;
   min-width: 0;
   min-height: 0;
@@ -1447,5 +1448,19 @@ button.reader-btn.mini-btn {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+}
+
+/* v2.29: in landscape, let the page wrappers shrink to the actual image
+   width so the two displayed pages sit together instead of looking split
+   by unused half-width flex columns. */
+@media (orientation: landscape) {
+  .reader-stage.mode-two-page .two-page-viewport {
+    gap: 0;
+  }
+  .reader-stage.mode-two-page .two-page-page {
+    flex: 0 1 auto;
+    width: auto;
+    max-width: 50%;
+  }
 }
 
