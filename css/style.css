@@ -1427,3 +1427,24 @@ button.reader-btn.mini-btn {
   width: auto;
 }
 
+
+/* v45: Two Page mode replaces the old orientation-dependent Spread mode. */
+.reader-stage.mode-spread .page-viewport {
+  gap: 8px;
+}
+.reader-stage.mode-spread .two-page-item {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.reader-stage.mode-spread .two-page-item img {
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
