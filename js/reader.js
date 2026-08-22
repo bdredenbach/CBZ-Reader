@@ -778,6 +778,63 @@ const Reader = {
    this.debugLog(`spread layout settled: ${width}x${height}`);
  },
 
+ async waitForViewportRecovery(previousWidth = 0, previousHeight = 0) {
+   const stage = this.els.stage;
+   const viewport = window.visualViewport;
+
+   const initialWidth = stage?.clientWidth || 0;
+   const initialHeight = stage?.clientHeight || 0;
+   const changed = (w, h) =>
+     (w > 0 && h > 0) &&
+     (Math.abs(w - previousWidth) > 1 || Math.abs(h - previousHeight) > 1 ||
+      Math.abs(w - initialWidth) > 1 || Math.abs(h - initialHeight) > 1);
+
+   await new Promise(resolve => {
+     let settledFrames = 0;
+     let lastW = stage?.clientWidth || 0;
+     let lastH = stage?.clientHeight || 0;
+     let finished = false;
+
+     const finish = () => {
+       if (finished) return;
+       finished = true;
+       window.removeEventListener("resize", onResize);
+       viewport?.removeEventListener("resize", onResize);
+       resolve();
+     };
+
+     const onResize = () => {
+       settledFrames = 0;
+     };
+
+     window.addEventListener("resize", onResize, { passive: true });
+     viewport?.addEventListener("resize", onResize, { passive: true });
+
+     const tick = () => {
+       const w = stage?.clientWidth || 0;
+       const h = stage?.clientHeight || 0;
+       const stable = w === lastW && h === lastH && w > 0 && h > 0;
+       if (stable) settledFrames++;
+       else settledFrames = 0;
+       lastW = w;
+       lastH = h;
+
+       // Two stable frames is enough once the browser has reported a valid
+       // non-zero viewport. Hard timeout prevents a device/browser quirk
+       // from blocking mode changes indefinitely.
+       if (settledFrames >= 2 && changed(w, h)) return finish();
+       requestAnimationFrame(tick);
+     };
+
+     requestAnimationFrame(tick);
+     setTimeout(finish, 900);
+   });
+
+   // One final frame lets layout/style recalculation catch up after the
+   // resize/orientation event before the new mode measures the stage.
+   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+ },
+
  async setMode(mode) {
    if (mode === this.mode) return;
    this.debugLog(`setMode: ${this.mode} -> ${mode}`);
@@ -842,12 +899,20 @@ const Reader = {
        this.debugLog("spread: landscape lock unavailable; current orientation retained");
      }
    } else if (wasSpread) {
+     const previousWidth = this.els.stage?.clientWidth || 0;
+     const previousHeight = this.els.stage?.clientHeight || 0;
+
      if (screen.orientation?.unlock) {
        try { screen.orientation.unlock(); } catch (_) {}
      }
      if (document.fullscreenElement && document.exitFullscreen) {
        try { await document.exitFullscreen(); } catch (_) {}
      }
+
+     // Android may report several intermediate viewport sizes while leaving
+     // fullscreen/orientation lock. Do not let Scroll/Manga measure one of
+     // those transient sizes.
+     await this.waitForViewportRecovery(previousWidth, previousHeight);
    }
 
    await this.render();
@@ -855,6 +920,15 @@ const Reader = {
      await this.stabilizeSpreadLayout();
      await new Promise(resolve => requestAnimationFrame(resolve));
      this.debugLog(`spread final layout: ${this.els.stage.clientWidth}x${this.els.stage.clientHeight}`);
+   } else if (wasSpread && (this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) {
+     await this.stabilizeContinuousLayout();
+     const target = this.els.stage.querySelector(`.scroll-page[data-index="${this.index}"]`);
+     if (target) {
+       target.scrollIntoView({ block: "start", inline: "start", behavior: "auto" });
+     }
+     this.updateSliderLabel();
+     this.updateBookmarkFlag();
+     this.debugLog(`post-spread continuous recovery: ${this.els.stage.clientWidth}x${this.els.stage.clientHeight}, page=${this.index + 1}`);
    }
    this.showChrome();
  },
