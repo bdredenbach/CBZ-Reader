@@ -878,6 +878,10 @@ button.reader-btn.mini-btn {
   min-height: 0;
 }
 
+/* v2.31: Two Page bubble overlays use fixed reader coordinates so the
+   extracted bubble remains above the focus dim and tracks device rotation. */
+.reader-view-two-page-bubble-fix {}
+
 /* v35: Bubble Zoom polish. */
 .bubble-zoom-alt-overlay { backface-visibility: hidden; -webkit-backface-visibility: hidden; image-rendering: auto; box-shadow: 0 18px 44px rgba(0,0,0,.62); }
 
