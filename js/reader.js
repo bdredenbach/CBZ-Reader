@@ -1962,14 +1962,20 @@ const Reader = {
    overlay.style.transformOrigin = "center center";
    overlay.style.willChange = "transform, opacity, filter";
 
-   // Two Page's .page-viewport is a stacking context (it has will-change: transform).
-   // If the bubble overlay is appended inside a page there, the stage-level focus
-   // dim (z-index 11) can sit above the entire viewport stacking context and dim
-   // the bubble too. Keep Two Page's bubble overlay directly under the stage so
-   // it can remain above the dim layer at z-index 12. Continuous readers keep
-   // their existing page-anchored behavior.
-   const twoPageStageOverlay = anchorPage && this.mode === "two-page";
-   if (anchorPage && !twoPageStageOverlay) {
+   // Two Page needs the bubble overlay in the reader's top-level coordinate
+   // space. The page viewport has its own stacking/transform context, and the
+   // stage can change geometry when the device rotates. A fixed overlay using
+   // client coordinates stays above the dim layer and remains correctly
+   // positioned through portrait/landscape transitions. Continuous readers
+   // keep their existing page-anchored behavior.
+   const twoPageFixedOverlay = this.mode === "two-page";
+   if (twoPageFixedOverlay) {
+     overlay.style.position = "fixed";
+     overlay.style.left = `${left}px`;
+     overlay.style.top = `${top}px`;
+     overlay.style.zIndex = "120";
+     overlay.dataset.anchorPage = anchorPage?.dataset?.index ?? "";
+   } else if (anchorPage) {
      const pageRect = anchorPage.getBoundingClientRect();
      overlay.style.left = `${left - pageRect.left}px`;
      overlay.style.top = `${top - pageRect.top}px`;
