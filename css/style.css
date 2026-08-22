@@ -401,12 +401,6 @@ button {
   -webkit-user-drag: none;
   pointer-events: none;
 }
-.mode-two-page .page-viewport {
-  gap: 2px;
-}
-.mode-two-page .page-viewport img {
-  max-width: 50%;
-}
 
 .mode-scroll .scroll-page {
   display: block;
@@ -1419,11 +1413,26 @@ button.reader-btn.mini-btn {
 
 
 /* v45: Two Page mode replaces the old orientation-dependent Two Page mode. */
-.reader-stage.mode-two-page .page-viewport {
-  gap: 8px;
+
+/* v2.27: fresh, isolated Two Page mode. It is a fixed two-page viewport:
+   no internal scrolling, no orientation/fullscreen state, and no continuous
+   reader geometry. Navigation happens by buttons or horizontal swipe. */
+.reader-stage.mode-two-page {
+  overflow: hidden !important;
+  touch-action: none;
 }
-.reader-stage.mode-two-page .two-page-item {
-  flex: 1 1 0;
+.reader-stage.mode-two-page .two-page-viewport {
+  overflow: hidden;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+}
+.reader-stage.mode-two-page .two-page-page {
+  flex: 0 1 50%;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -1431,10 +1440,12 @@ button.reader-btn.mini-btn {
   align-items: center;
   justify-content: center;
 }
-.reader-stage.mode-two-page .two-page-item img {
+.reader-stage.mode-two-page .two-page-page img {
+  display: block;
   width: auto;
-  height: 100%;
+  height: auto;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
 }
+
