@@ -9,7 +9,7 @@ const Reader = {
  comic: null,
  pageUrls: [],       // object URLs, lazily filled
  index: 0,
- mode: "single",      // single | spread | scroll | manga | webcomic
+ mode: "single",      // single | two-page(legacy "spread") | scroll | manga | webcomic
  theme: "dark",        // dark | sepia | light
  scale: 1,
  tx: 0,
@@ -285,7 +285,7 @@ const Reader = {
 
    // Restore the shared viewport's paged layout explicitly. Continuous
    // modes use max-content/scroll geometry; those styles must not leak into
-   // Spread Mode after a mode switch.
+   // Two Page layout after a mode switch.
    this.els.viewport.style.display = "flex";
    this.els.viewport.style.width = "100%";
    this.els.viewport.style.height = "100%";
@@ -306,13 +306,36 @@ const Reader = {
    this.els.viewport.innerHTML = "";
    const imgs = [];
 
-   for (const url of urls) {
+   for (let n = 0; n < urls.length; n++) {
+     const url = urls[n];
      if (!url) continue;
-     const img = document.createElement("img");
-     img.src = url;
-     img.draggable = false;
-     this.els.viewport.appendChild(img);
-     imgs.push(img);
+
+     if (this.mode === "spread") {
+       const pageIndex = indices[n];
+       const wrap = document.createElement("div");
+       wrap.className = "scroll-page two-page-item";
+       wrap.dataset.index = String(pageIndex);
+
+       const img = document.createElement("img");
+       img.src = url;
+       img.draggable = false;
+       img.dataset.src = "loaded";
+       const dims = this._pageDims?.[pageIndex];
+       if (dims?.width && dims?.height) {
+         img.width = dims.width;
+         img.height = dims.height;
+       }
+
+       wrap.appendChild(img);
+       this.els.viewport.appendChild(wrap);
+       imgs.push(img);
+     } else {
+       const img = document.createElement("img");
+       img.src = url;
+       img.draggable = false;
+       this.els.viewport.appendChild(img);
+       imgs.push(img);
+     }
    }
 
    this.prefetch();
@@ -908,7 +931,7 @@ const Reader = {
 
    if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
-   const wasSpread = this.mode === "spread";
+   const wasTwoPage = this.mode === "spread";
 
    if (this.mode === "single" && mode !== "single" && this.turnPageMode) {
      await this.turnPageMode.destroy();
@@ -922,83 +945,15 @@ const Reader = {
    this.applyModeClass();
    this.updateModePills();
 
-   if (mode === "spread") {
-     let orientationLocked = false;
-
-     if (screen.orientation?.lock) {
-       try {
-         await screen.orientation.lock("landscape-primary");
-         orientationLocked = true;
-         this.debugLog("spread: landscape-primary orientation locked");
-       } catch (err) {
-         try {
-           await screen.orientation.lock("landscape");
-           orientationLocked = true;
-           this.debugLog("spread: landscape orientation locked");
-         } catch (err2) {
-           this.debugLog("spread: normal orientation lock unavailable");
-         }
-       }
-     }
-
-     if (!orientationLocked && !document.fullscreenElement && this.els.view?.requestFullscreen) {
-       try {
-         await this.els.view.requestFullscreen({ navigationUI: "hide" });
-         this.debugLog("spread: entered fullscreen for orientation lock");
-         if (screen.orientation?.lock) {
-           try {
-             await screen.orientation.lock("landscape-primary");
-             orientationLocked = true;
-             this.debugLog("spread: landscape-primary locked after fullscreen");
-           } catch (err3) {
-             try {
-               await screen.orientation.lock("landscape");
-               orientationLocked = true;
-               this.debugLog("spread: landscape locked after fullscreen");
-             } catch (err4) {}
-           }
-         }
-       } catch (fullscreenErr) {
-         this.debugLog("spread: fullscreen fallback unavailable");
-       }
-     }
-
-     if (!orientationLocked) {
-       this.debugLog("spread: landscape lock unavailable; current orientation retained");
-     }
-   } else if (wasSpread) {
-     const previousWidth = this.els.stage?.clientWidth || 0;
-     const previousHeight = this.els.stage?.clientHeight || 0;
-
-     if (screen.orientation?.unlock) {
-       try { screen.orientation.unlock(); } catch (_) {}
-     }
-     if (document.fullscreenElement && document.exitFullscreen) {
-       try { await document.exitFullscreen(); } catch (_) {}
-     }
-
-     // Android may report several intermediate viewport sizes while leaving
-     // fullscreen/orientation lock. Do not let Scroll/Manga measure one of
-     // those transient sizes.
-     await this.waitForViewportRecovery(previousWidth, previousHeight);
-   }
-
+   // "spread" remains the internal value for backward compatibility with
+   // saved comics, but it is now the simple Two Page layout. It no longer
+   // requests orientation changes or fullscreen, so it cannot poison the
+   // viewport state of the other reader modes.
    await this.render();
    if (this.mode === "spread") {
      await this.stabilizeSpreadLayout();
      await new Promise(resolve => requestAnimationFrame(resolve));
-     this.debugLog(`spread final layout: ${this.els.stage.clientWidth}x${this.els.stage.clientHeight}`);
-   } else if (wasSpread && (this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) {
-     await this.stabilizeContinuousLayout();
-     const preservedIndex = this.index;
-     const target = this.els.stage.querySelector(`.scroll-page[data-index="${preservedIndex}"]`);
-     if (target) {
-       target.scrollIntoView({ block: "start", inline: "start", behavior: "auto" });
-     }
-     this.index = preservedIndex;
-     this.updateSliderLabel();
-     this.updateBookmarkFlag();
-     this.debugLog(`post-spread continuous recovery: ${this.els.stage.clientWidth}x${this.els.stage.clientHeight}, page=${this.index + 1}`);
+     this.debugLog(`two-page layout: ${this.els.stage.clientWidth}x${this.els.stage.clientHeight}`);
    }
    this.showChrome();
  },
@@ -1217,7 +1172,7 @@ const Reader = {
    const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
 
    const getContinuousTargetAtPoint = (screenX, screenY) => {
-     if (!(this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga")) return null;
+     if (!(this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "spread")) return null;
      const pages = Array.from(this.els.stage.querySelectorAll(".scroll-page"));
      for (const page of pages) {
        const img = page.querySelector("img");
@@ -1341,7 +1296,7 @@ const Reader = {
    };
 
    stage.addEventListener("touchstart", (e) => {
-     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
+     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "spread") {
        if (e.touches.length === 1) {
          const t = e.touches[0];
          continuousTapStart = { x: t.clientX, y: t.clientY };
@@ -1387,7 +1342,7 @@ const Reader = {
    }, { passive: false });
 
    stage.addEventListener("touchmove", (e) => {
-     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
+     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "spread") {
        if (continuousTapStart && e.touches.length === 1) {
          const dx = e.touches[0].clientX - continuousTapStart.x;
          const dy = e.touches[0].clientY - continuousTapStart.y;
@@ -1446,7 +1401,7 @@ const Reader = {
    }, { passive: false });
 
    stage.addEventListener("touchend", (e) => {
-     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
+     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "spread") {
        clearTimeout(continuousHoldTimer);
        continuousHoldTimer = null;
        const t = e.changedTouches[0];
