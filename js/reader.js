@@ -183,6 +183,24 @@ const Reader = {
    this.saveProgress();
  },
 
+ async preflightPageImage(i) {
+   const url = await this.getPageUrl(i);
+   if (!url) return null;
+
+   // Decode off-DOM so the existing mode can remain visible while the next
+   // mode prepares its first page. The browser cache makes the subsequent
+   // on-DOM image assignment effectively immediate.
+   try {
+     const probe = new Image();
+     probe.src = url;
+     if (probe.decode) await probe.decode();
+   } catch (_) {
+     // A failed decode should not block the reader; renderPaged/renderContinuous
+     // will still attempt the normal image load.
+   }
+   return url;
+ },
+
  async renderPaged() {
     if (this.mode === "single" && this.useTurnJSPageMode && this.turnPageMode) {
       const ok = await this.turnPageMode.render(this.els.viewport);
@@ -212,8 +230,11 @@ const Reader = {
      ? [this.index, this.index + 1].filter(i => i < this.comic.pageCount)
      : [this.index];
 
+   // Keep the old mode visible while the new page(s) are actually ready.
+   const urls = await Promise.all(indices.map(i => this.preflightPageImage(i)));
+
+   // Only now replace the old viewport contents.
    this.els.viewport.innerHTML = "";
-   const urls = await Promise.all(indices.map(i => this.getPageUrl(i)));
    const imgs = [];
 
    for (const url of urls) {
@@ -279,6 +300,12 @@ const Reader = {
    await this.stabilizeContinuousLayout();
    const horizontal = this.mode === "scroll" || this.mode === "manga";
    const rtl = this.mode === "manga";
+
+   // Prepare the page the user is currently on before destroying the old
+   // mode's visible content. This removes the long black gap seen during
+   // mode switches while leaving the existing look-ahead/back logic intact.
+   const currentUrl = await this.preflightPageImage(this.index);
+
    this.els.stage.classList.toggle("mode-scroll", this.mode === "scroll");
    this.els.stage.classList.toggle("mode-manga", rtl);
    this.els.stage.classList.toggle("mode-webcomic", this.mode === "webcomic");
@@ -292,7 +319,12 @@ const Reader = {
        wrap.className = "scroll-page";
        wrap.dataset.index = i;
        const img = document.createElement("img");
-       img.dataset.src = "pending";
+       if (i === this.index && currentUrl) {
+         img.src = currentUrl;
+         img.dataset.src = "loaded";
+       } else {
+         img.dataset.src = "pending";
+       }
        wrap.appendChild(img);
        frag.appendChild(wrap);
      });
