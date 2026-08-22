@@ -1992,8 +1992,18 @@ const Reader = {
    ctx.drawImage(canvas, 0, 0);
 
    this.setFocusDim(true, true);
-   if (anchorPage) anchorPage.appendChild(overlay);
-   else this.els.stage.appendChild(overlay);
+   // In Two Page the bubble uses fixed reader/screen coordinates. It must be
+   // a direct child of the stage so it shares the same stacking context as
+   // the focus dim. Appending it to a .two-page-page would trap the overlay
+   // inside the page/viewport stacking context, allowing the dim layer to
+   // cover it even with a higher z-index.
+   if (twoPageFixedOverlay) {
+     this.els.stage.appendChild(overlay);
+   } else if (anchorPage) {
+     anchorPage.appendChild(overlay);
+   } else {
+     this.els.stage.appendChild(overlay);
+   }
 
    this.els.bubbleOverlay = overlay;
    this.bubbleOverlayActive = true;
