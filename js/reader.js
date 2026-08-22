@@ -514,7 +514,17 @@ const Reader = {
            this.loadContinuousPage(i + n);
          }
 
-         if (performance.now() >= (this._ignoreScrollIndexUntil || 0)) {
+         // During a Two Page -> continuous handoff, the preserved page is
+         // authoritative until that exact page becomes visible. Intersection
+         // Observer entries for neighboring pages must not steal the index
+         // while the new layout is settling.
+         if (this._continuousHandoffPending) {
+           if (i === this._continuousHandoffIndex) {
+             this.index = i;
+             this.updateSliderLabel();
+             this._continuousHandoffPending = false;
+           }
+         } else {
            this.index = i;
            this.updateSliderLabel();
          }
@@ -526,7 +536,6 @@ const Reader = {
 
    this.els.stage.querySelectorAll(".scroll-page").forEach((el) => io.observe(el));
    this._scrollObserver = io;
-   this._ignoreScrollIndexUntil = performance.now() + 500;
 
    if (horizontal) {
      const settledHeight = this.els.stage.clientHeight;
@@ -539,12 +548,19 @@ const Reader = {
    }
 
    requestAnimationFrame(() => {
-     const target = this.els.stage.querySelector(`.scroll-page[data-index="${this.index}"]`);
+     const targetIndex = this._continuousHandoffPending
+       ? this._continuousHandoffIndex
+       : this.index;
+     const target = this.els.stage.querySelector(`.scroll-page[data-index="${targetIndex}"]`);
      if (target) {
        target.scrollIntoView({
          block: "start",
          inline: horizontal ? "nearest" : "nearest"
        });
+     } else if (this._continuousHandoffPending) {
+       // The target should exist, but don't leave stale handoff state behind
+       // if a future renderer change prevents it from being created.
+       this._continuousHandoffPending = false;
      }
    });
  },
@@ -915,6 +931,27 @@ const Reader = {
    this.debugLog(`setMode: ${this.mode} -> ${mode}`);
 
    const wasContinuous = this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic";
+   const leavingTwoPage = this.mode === "two-page" && mode !== "two-page";
+
+   // Two Page owns the shared viewport with inline layout styles. Clear those
+   // styles before a continuous mode gets a chance to measure/rebuild it.
+   // The mode-specific CSS will then provide the correct display/size/overflow.
+   if (leavingTwoPage) {
+     this._continuousHandoffIndex = this.index;
+     this._continuousHandoffPending = true;
+
+     this.els.stage.style.overflow = "";
+     this.els.viewport.style.display = "";
+     this.els.viewport.style.width = "";
+     this.els.viewport.style.height = "";
+     this.els.viewport.style.transform = "";
+     this.els.viewport.style.overflow = "";
+     this.els.viewport.style.flexDirection = "";
+     this.els.viewport.style.alignItems = "";
+     this.els.viewport.style.justifyContent = "";
+     this.els.viewport.style.gap = "";
+   }
+
    // The IntersectionObserver is intentionally only a convenience for keeping
    // the slider current. The actual page visible at the instant of a mode
    // switch is the authoritative source of truth.
