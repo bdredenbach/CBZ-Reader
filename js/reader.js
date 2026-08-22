@@ -778,6 +778,65 @@ const Reader = {
    this.debugLog(`spread layout settled: ${width}x${height}`);
  },
 
+ syncIndexFromVisiblePage() {
+   if (!(this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) {
+     return this.index;
+   }
+
+   const stage = this.els.stage;
+   if (!stage) return this.index;
+
+   const stageRect = stage.getBoundingClientRect();
+   const horizontal = this.mode === "scroll" || this.mode === "manga";
+   const pages = Array.from(stage.querySelectorAll(".scroll-page"));
+   if (!pages.length) return this.index;
+
+   const start = horizontal ? stageRect.left : stageRect.top;
+   const end = horizontal ? stageRect.right : stageRect.bottom;
+   const viewportSpan = Math.max(1, end - start);
+
+   let bestIndex = this.index;
+   let bestScore = -1;
+
+   for (const page of pages) {
+     const i = Number(page.dataset.index);
+     if (!Number.isInteger(i)) continue;
+
+     const rect = page.getBoundingClientRect();
+     const pageStart = horizontal ? rect.left : rect.top;
+     const pageEnd = horizontal ? rect.right : rect.bottom;
+     const visible = Math.max(
+       0,
+       Math.min(end, pageEnd) - Math.max(start, pageStart)
+     );
+     if (visible <= 0) continue;
+
+     // Prefer the page occupying the greatest share of the viewport. A small
+     // tie-break toward the viewport center prevents a barely-visible page at
+     // an edge from stealing the current index.
+     const pageSpan = Math.max(1, pageEnd - pageStart);
+     const visibleRatio = Math.min(1, visible / pageSpan);
+     const pageCenter = (pageStart + pageEnd) / 2;
+     const viewportCenter = (start + end) / 2;
+     const centerDistance = Math.abs(pageCenter - viewportCenter) / viewportSpan;
+     const score = visibleRatio * 100 - centerDistance;
+
+     if (score > bestScore) {
+       bestScore = score;
+       bestIndex = i;
+     }
+   }
+
+   if (bestIndex !== this.index) {
+     this.debugLog(`visible-page sync: ${this.index + 1} -> ${bestIndex + 1}`);
+     this.index = bestIndex;
+     this.updateSliderLabel();
+     this.updateBookmarkFlag();
+   }
+
+   return this.index;
+ },
+
  async waitForViewportRecovery(previousWidth = 0, previousHeight = 0) {
    const stage = this.els.stage;
    const viewport = window.visualViewport;
@@ -838,6 +897,15 @@ const Reader = {
  async setMode(mode) {
    if (mode === this.mode) return;
    this.debugLog(`setMode: ${this.mode} -> ${mode}`);
+
+   const wasContinuous = this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic";
+   // The IntersectionObserver is intentionally only a convenience for keeping
+   // the slider current. The actual page visible at the instant of a mode
+   // switch is the authoritative source of truth.
+   if (wasContinuous) {
+     this.syncIndexFromVisiblePage();
+   }
+
    if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
    const wasSpread = this.mode === "spread";
@@ -922,10 +990,12 @@ const Reader = {
      this.debugLog(`spread final layout: ${this.els.stage.clientWidth}x${this.els.stage.clientHeight}`);
    } else if (wasSpread && (this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) {
      await this.stabilizeContinuousLayout();
-     const target = this.els.stage.querySelector(`.scroll-page[data-index="${this.index}"]`);
+     const preservedIndex = this.index;
+     const target = this.els.stage.querySelector(`.scroll-page[data-index="${preservedIndex}"]`);
      if (target) {
        target.scrollIntoView({ block: "start", inline: "start", behavior: "auto" });
      }
+     this.index = preservedIndex;
      this.updateSliderLabel();
      this.updateBookmarkFlag();
      this.debugLog(`post-spread continuous recovery: ${this.els.stage.clientWidth}x${this.els.stage.clientHeight}, page=${this.index + 1}`);
