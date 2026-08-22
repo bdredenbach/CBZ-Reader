@@ -1962,7 +1962,14 @@ const Reader = {
    overlay.style.transformOrigin = "center center";
    overlay.style.willChange = "transform, opacity, filter";
 
-   if (anchorPage) {
+   // Two Page's .page-viewport is a stacking context (it has will-change: transform).
+   // If the bubble overlay is appended inside a page there, the stage-level focus
+   // dim (z-index 11) can sit above the entire viewport stacking context and dim
+   // the bubble too. Keep Two Page's bubble overlay directly under the stage so
+   // it can remain above the dim layer at z-index 12. Continuous readers keep
+   // their existing page-anchored behavior.
+   const twoPageStageOverlay = anchorPage && this.mode === "two-page";
+   if (anchorPage && !twoPageStageOverlay) {
      const pageRect = anchorPage.getBoundingClientRect();
      overlay.style.left = `${left - pageRect.left}px`;
      overlay.style.top = `${top - pageRect.top}px`;
