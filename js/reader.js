@@ -136,6 +136,7 @@ const Reader = {
    this.mode = this.comic.readMode || "single";
    this.theme = this.comic.theme || "dark";
    this.pageUrls = new Array(this.comic.pageCount).fill(null);
+   this._pageDims = new Array(this.comic.pageCount).fill(null);
    this.scale = 1; this.tx = 0; this.ty = 0;
 
    this.els.title.textContent = this.comic.title;
@@ -204,7 +205,28 @@ const Reader = {
        await Promise.all(
          Array.from(
            { length: Math.min(batchSize, count - start) },
-           (_, n) => this.getPageUrl(start + n).catch(() => null)
+           async (_, n) => {
+             const i = start + n;
+             try {
+               const url = await this.getPageUrl(i);
+               if (!url) return;
+
+               const probe = new Image();
+               probe.src = url;
+               await new Promise(resolve => {
+                 if (probe.complete && probe.naturalWidth) return resolve();
+                 probe.onload = () => resolve();
+                 probe.onerror = () => resolve();
+               });
+
+               if (probe.naturalWidth && probe.naturalHeight) {
+                 this._pageDims[i] = {
+                   width: probe.naturalWidth,
+                   height: probe.naturalHeight
+                 };
+               }
+             } catch (_) {}
+           }
          )
        );
        if (this.debugMode) {
@@ -235,6 +257,12 @@ const Reader = {
      const probe = new Image();
      probe.src = url;
      if (probe.decode) await probe.decode();
+     if (probe.naturalWidth && probe.naturalHeight) {
+       this._pageDims[i] = {
+         width: probe.naturalWidth,
+         height: probe.naturalHeight
+       };
+     }
    } catch (_) {
      // A failed decode should not block the reader; renderPaged/renderContinuous
      // will still attempt the normal image load.
@@ -335,6 +363,14 @@ const Reader = {
    }
    img.src = url;
    if (img.decode) await img.decode().catch(() => {});
+
+   if (img.naturalWidth && img.naturalHeight) {
+     this._pageDims[i] = {
+       width: img.naturalWidth,
+       height: img.naturalHeight
+     };
+     wrap.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+   }
  },
 
  async renderContinuous() {
@@ -345,7 +381,15 @@ const Reader = {
    // Prepare the page the user is currently on before destroying the old
    // mode's visible content. This removes the long black gap seen during
    // mode switches while leaving the existing look-ahead/back logic intact.
-   const currentUrl = await this.preflightPageImage(this.index);
+   const windowIndices = Array.from(
+     { length: horizontal ? 7 : 3 },
+     (_, n) => this.index + n - (horizontal ? 3 : 1)
+   ).filter(i => i >= 0 && i < this.comic.pageCount);
+
+   const windowUrls = await Promise.all(
+     windowIndices.map(i => this.preflightPageImage(i))
+   );
+   const currentUrl = windowUrls[windowIndices.indexOf(this.index)] || null;
 
    this.els.stage.classList.toggle("mode-scroll", this.mode === "scroll");
    this.els.stage.classList.toggle("mode-manga", rtl);
@@ -360,6 +404,13 @@ const Reader = {
        wrap.className = "scroll-page";
        wrap.dataset.index = i;
        const img = document.createElement("img");
+       const dims = this._pageDims?.[i];
+       if (dims?.width && dims?.height) {
+         wrap.style.aspectRatio = `${dims.width} / ${dims.height}`;
+         img.width = dims.width;
+         img.height = dims.height;
+       }
+
        if (i === this.index && currentUrl) {
          img.src = currentUrl;
          img.dataset.src = "loaded";
