@@ -161,7 +161,9 @@ const Reader = {
 
  async render() {
    this.resetZoom({ animate: false });
-   if (this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic") {
+   if (this.mode === "two-page") {
+     await this.renderTwoPage();
+   } else if (this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic") {
      await this.renderContinuous();
    } else {
      await this.renderPaged();
@@ -270,63 +272,93 @@ const Reader = {
       this.debugLog("Turn.js Page Mode unavailable; using normal page renderer.");
     }
 
-   // Restore the shared viewport's paged layout explicitly. Continuous
-   // modes use max-content/scroll geometry; those styles must not leak into
-   // Two Page layout after a mode switch.
+    this.els.viewport.style.display = "flex";
+    this.els.viewport.style.width = "100%";
+    this.els.viewport.style.height = "100%";
+    this.els.viewport.style.transform = "none";
+    this.els.viewport.style.overflow = "hidden";
+    this.els.viewport.scrollLeft = 0;
+    this.els.viewport.scrollTop = 0;
+    this.els.stage.scrollLeft = 0;
+    this.els.stage.scrollTop = 0;
+
+    const url = await this.preflightPageImage(this.index);
+
+    this.els.viewport.innerHTML = "";
+    if (url) {
+      const img = document.createElement("img");
+      img.src = url;
+      img.draggable = false;
+      this.els.viewport.appendChild(img);
+    }
+
+    this.prefetch();
+    this.loadPanelsForCurrentPage();
+ },
+
+ async renderTwoPage() {
+   const pageCount = this.comic?.pageCount || 0;
+   if (!pageCount) return;
+
+   // The current page remains the current page. We only choose a pair for
+   // display; entering Two Page never rewrites this.index.
+   const pairStart = this.index % 2 === 0
+     ? this.index
+     : Math.max(0, this.index - 1);
+   const pairIndices = [pairStart, pairStart + 1].filter(i => i < pageCount);
+
+   const urls = await Promise.all(
+     pairIndices.map(i => this.preflightPageImage(i))
+   );
+
+   // A completely new DOM tree, unrelated to continuous-mode .scroll-page
+   // elements and unrelated to any continuous-mode DOM.
+   this.els.stage.classList.remove("mode-scroll", "mode-manga", "mode-webcomic");
+   this.els.stage.classList.add("mode-two-page");
+   this.els.stage.style.overflow = "hidden";
+   this.els.stage.scrollLeft = 0;
+   this.els.stage.scrollTop = 0;
+
+   this.els.viewport.innerHTML = "";
+   this.els.viewport.className = "page-viewport two-page-viewport";
    this.els.viewport.style.display = "flex";
    this.els.viewport.style.width = "100%";
    this.els.viewport.style.height = "100%";
    this.els.viewport.style.transform = "none";
-   this.els.viewport.scrollLeft = 0;
-   this.els.viewport.scrollTop = 0;
-   this.els.stage.scrollLeft = 0;
-   this.els.stage.scrollTop = 0;
+   this.els.viewport.style.overflow = "hidden";
+   this.els.viewport.style.flexDirection = "row";
+   this.els.viewport.style.alignItems = "center";
+   this.els.viewport.style.justifyContent = "center";
+   this.els.viewport.style.gap = "8px";
 
-   const indices = this.mode === "two-page"
-     ? [this.index, this.index + 1].filter(i => i < this.comic.pageCount)
-     : [this.index];
-
-   // Keep the old mode visible while the new page(s) are actually ready.
-   const urls = await Promise.all(indices.map(i => this.preflightPageImage(i)));
-
-   // Only now replace the old viewport contents.
-   this.els.viewport.innerHTML = "";
-   const imgs = [];
-
-   for (let n = 0; n < urls.length; n++) {
+   for (let n = 0; n < pairIndices.length; n++) {
      const url = urls[n];
      if (!url) continue;
 
-     if (this.mode === "two-page") {
-       const pageIndex = indices[n];
-       const wrap = document.createElement("div");
-       wrap.className = "scroll-page two-page-item";
-       wrap.dataset.index = String(pageIndex);
+     const pageIndex = pairIndices[n];
+     const page = document.createElement("div");
+     page.className = "two-page-page";
+     page.dataset.index = String(pageIndex);
 
-       const img = document.createElement("img");
-       img.src = url;
-       img.draggable = false;
-       img.dataset.src = "loaded";
-       const dims = this._pageDims?.[pageIndex];
-       if (dims?.width && dims?.height) {
-         img.width = dims.width;
-         img.height = dims.height;
-       }
+     const img = document.createElement("img");
+     img.src = url;
+     img.draggable = false;
+     img.dataset.src = "loaded";
 
-       wrap.appendChild(img);
-       this.els.viewport.appendChild(wrap);
-       imgs.push(img);
-     } else {
-       const img = document.createElement("img");
-       img.src = url;
-       img.draggable = false;
-       this.els.viewport.appendChild(img);
-       imgs.push(img);
+     const dims = this._pageDims?.[pageIndex];
+     if (dims?.width && dims?.height) {
+       img.width = dims.width;
+       img.height = dims.height;
      }
+
+     page.appendChild(img);
+     this.els.viewport.appendChild(page);
    }
 
    this.prefetch();
    this.loadPanelsForCurrentPage();
+   this.updateSliderLabel();
+   this.updateBookmarkFlag();
  },
 
  async stabilizeContinuousLayout() {
@@ -482,8 +514,10 @@ const Reader = {
            this.loadContinuousPage(i + n);
          }
 
-         this.index = i;
-         this.updateSliderLabel();
+         if (performance.now() >= (this._ignoreScrollIndexUntil || 0)) {
+           this.index = i;
+           this.updateSliderLabel();
+         }
          this.updateBookmarkFlag();
          this.throttledSaveProgress();
        }
@@ -492,6 +526,7 @@ const Reader = {
 
    this.els.stage.querySelectorAll(".scroll-page").forEach((el) => io.observe(el));
    this._scrollObserver = io;
+   this._ignoreScrollIndexUntil = performance.now() + 500;
 
    if (horizontal) {
      const settledHeight = this.els.stage.clientHeight;
@@ -759,35 +794,6 @@ const Reader = {
      btn.classList.toggle("active", btn.dataset.theme === this.theme);
    });
  },
-
- async stabilizeTwoPageLayout() {
-   if (this.mode !== "two-page") return;
-
-   await new Promise(resolve => {
-     let frames = 4;
-     const tick = () => {
-       if (--frames <= 0) resolve();
-       else requestAnimationFrame(tick);
-     };
-     requestAnimationFrame(tick);
-   });
-
-   if (this.mode !== "two-page") return;
-   const width = this.els.stage.clientWidth;
-   const height = this.els.stage.clientHeight;
-   if (width > 0 && height > 0) {
-     this.els.viewport.style.display = "flex";
-     this.els.viewport.style.width = `${width}px`;
-     this.els.viewport.style.height = `${height}px`;
-     this.els.viewport.style.transform = "none";
-     this.els.viewport.style.alignItems = "center";
-     this.els.viewport.style.justifyContent = "center";
-   }
-   this.els.stage.scrollLeft = 0;
-   this.els.stage.scrollTop = 0;
-   this.debugLog(`two-page layout settled: ${width}x${height}`);
- },
-
  syncIndexFromVisiblePage() {
    if (!(this.mode === "scroll" || this.mode === "manga" || this.mode === "webcomic")) {
      return this.index;
@@ -918,8 +924,6 @@ const Reader = {
 
    if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
-   const wasTwoPage = this.mode === "two-page";
-
    if (this.mode === "single" && mode !== "single" && this.turnPageMode) {
      await this.turnPageMode.destroy();
      // Turn.js hides its shared host on destroy; other modes need it visible.
@@ -932,16 +936,7 @@ const Reader = {
    this.applyModeClass();
    this.updateModePills();
 
-   // "two-page" remains the internal value for backward compatibility with
-   // saved comics, but it is now the simple Two Page layout. It no longer
-   // requests orientation changes or fullscreen, so it cannot poison the
-   // viewport state of the other reader modes.
    await this.render();
-   if (this.mode === "two-page") {
-     await this.stabilizeTwoPageLayout();
-     await new Promise(resolve => requestAnimationFrame(resolve));
-     this.debugLog(`two-page layout: ${this.els.stage.clientWidth}x${this.els.stage.clientHeight}`);
-   }
    this.showChrome();
  },
 
@@ -994,6 +989,8 @@ const Reader = {
      this.updateSliderLabel();
      this.updateBookmarkFlag();
      this.saveProgress();
+   } else if (this.mode === "two-page") {
+     this.render();
    } else {
      this.render();
    }
@@ -1154,13 +1151,15 @@ const Reader = {
    let pendingTapTimer = null;
    let holdTimer = null;
    let holdFired = false;
+   let twoPageGestureStart = null;
+   let twoPageGestureMoved = false;
 
    const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
    const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
 
    const getContinuousTargetAtPoint = (screenX, screenY) => {
      if (!(this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "two-page")) return null;
-     const pages = Array.from(this.els.stage.querySelectorAll(".scroll-page"));
+     const pages = Array.from(this.els.stage.querySelectorAll(".scroll-page, .two-page-page"));
      for (const page of pages) {
        const img = page.querySelector("img");
        if (!img) continue;
@@ -1283,7 +1282,28 @@ const Reader = {
    };
 
    stage.addEventListener("touchstart", (e) => {
-     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "two-page") {
+     if (this.mode === "two-page") {
+       if (e.touches.length === 1) {
+         const t = e.touches[0];
+         twoPageGestureStart = { x: t.clientX, y: t.clientY };
+         twoPageGestureMoved = false;
+         continuousHoldFired = false;
+         clearTimeout(continuousHoldTimer);
+         continuousHoldTimer = setTimeout(
+           () => triggerContinuousHold(t.clientX, t.clientY),
+           HOLD_MS
+         );
+       } else {
+         twoPageGestureStart = null;
+         twoPageGestureMoved = true;
+         continuousHoldFired = false;
+         clearTimeout(continuousHoldTimer);
+         continuousHoldTimer = null;
+       }
+       return;
+     }
+
+     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
        if (e.touches.length === 1) {
          const t = e.touches[0];
          continuousTapStart = { x: t.clientX, y: t.clientY };
@@ -1329,7 +1349,23 @@ const Reader = {
    }, { passive: false });
 
    stage.addEventListener("touchmove", (e) => {
-     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "two-page") {
+     if (this.mode === "two-page") {
+       if (twoPageGestureStart && e.touches.length === 1) {
+         const dx = e.touches[0].clientX - twoPageGestureStart.x;
+         const dy = e.touches[0].clientY - twoPageGestureStart.y;
+         if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+           twoPageGestureMoved = true;
+           clearTimeout(continuousHoldTimer);
+           continuousHoldTimer = null;
+         }
+         if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+           e.preventDefault();
+         }
+       }
+       return;
+     }
+
+     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
        if (continuousTapStart && e.touches.length === 1) {
          const dx = e.touches[0].clientX - continuousTapStart.x;
          const dy = e.touches[0].clientY - continuousTapStart.y;
@@ -1388,7 +1424,70 @@ const Reader = {
    }, { passive: false });
 
    stage.addEventListener("touchend", (e) => {
-     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "two-page") {
+     if (this.mode === "two-page") {
+       clearTimeout(continuousHoldTimer);
+       continuousHoldTimer = null;
+       const endTouch = e.changedTouches[0];
+       const start = twoPageGestureStart;
+       twoPageGestureStart = null;
+
+       if (!endTouch || !start) {
+         continuousHoldFired = false;
+         return;
+       }
+
+       const dx = endTouch.clientX - start.x;
+       const dy = endTouch.clientY - start.y;
+       const horizontalSwipe =
+         Math.abs(dx) > 60 &&
+         Math.abs(dx) > Math.abs(dy) * 1.15;
+
+       if (horizontalSwipe && !continuousHoldFired) {
+         e.preventDefault();
+         if (dx < 0) this.next();
+         else this.prev();
+         twoPageGestureMoved = false;
+         continuousHoldFired = false;
+         return;
+       }
+
+       const isStationary =
+         Math.abs(dx) <= 10 &&
+         Math.abs(dy) <= 10 &&
+         !twoPageGestureMoved;
+
+       if (isStationary && !continuousHoldFired) {
+         const now = Date.now();
+         const pos = { x: endTouch.clientX, y: endTouch.clientY };
+         const isDouble = lastTapPos &&
+           (now - lastTapTime) < 280 &&
+           Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 70;
+
+         if (isDouble) {
+           clearTimeout(pendingTapTimer);
+           pendingTapTimer = null;
+           lastTapTime = 0;
+           lastTapPos = null;
+           handleContinuousDoubleTap(pos.x, pos.y);
+         } else {
+           clearTimeout(pendingTapTimer);
+           lastTapTime = now;
+           lastTapPos = pos;
+           pendingTapTimer = setTimeout(() => {
+             pendingTapTimer = null;
+             lastTapTime = 0;
+             lastTapPos = null;
+             this.showChrome();
+           }, 280);
+         }
+       }
+
+       twoPageGestureMoved = false;
+       continuousHoldFired = false;
+       return;
+     }
+
+     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga") {
        clearTimeout(continuousHoldTimer);
        continuousHoldTimer = null;
        const t = e.changedTouches[0];
