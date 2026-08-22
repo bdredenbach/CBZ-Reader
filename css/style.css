@@ -1411,3 +1411,19 @@ button.reader-btn.mini-btn {
 .reader-stage .longbox-turn-host {
   z-index: 4 !important;
 }
+
+/* v44: keep continuous page boxes from collapsing while images are pending. */
+.reader-stage.mode-scroll .scroll-page,
+.reader-stage.mode-manga .scroll-page {
+  min-width: 1px;
+  min-height: 1px;
+}
+
+.reader-stage.mode-scroll .scroll-page img,
+.reader-stage.mode-manga .scroll-page img {
+  display: block;
+  max-width: none;
+  height: 100%;
+  width: auto;
+}
+
