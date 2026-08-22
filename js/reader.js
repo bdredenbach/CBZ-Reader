@@ -9,7 +9,7 @@ const Reader = {
  comic: null,
  pageUrls: [],       // object URLs, lazily filled
  index: 0,
- mode: "single",      // single | two-page(legacy "spread") | scroll | manga | webcomic
+ mode: "single",      // single | two-page | scroll | manga | webcomic
  theme: "dark",        // dark | sepia | light
  scale: 1,
  tx: 0,
@@ -89,19 +89,6 @@ const Reader = {
    });
 
    this.bindGestures();
-
-   let spreadTimer = null;
-   const settleSpread = () => {
-     if (this.mode !== "spread") return;
-     clearTimeout(spreadTimer);
-     spreadTimer = setTimeout(() => this.stabilizeSpreadLayout(), 500);
-   };
-   window.addEventListener("resize", settleSpread, { passive: true });
-   window.addEventListener("orientationchange", settleSpread, { passive: true });
-   if (window.visualViewport) {
-     window.visualViewport.addEventListener("resize", settleSpread, { passive: true });
-   }
-   screen.orientation?.addEventListener?.("change", settleSpread);
 
    let continuousTimer = null;
    const settleContinuous = () => {
@@ -295,7 +282,7 @@ const Reader = {
    this.els.stage.scrollLeft = 0;
    this.els.stage.scrollTop = 0;
 
-   const indices = this.mode === "spread"
+   const indices = this.mode === "two-page"
      ? [this.index, this.index + 1].filter(i => i < this.comic.pageCount)
      : [this.index];
 
@@ -310,7 +297,7 @@ const Reader = {
      const url = urls[n];
      if (!url) continue;
 
-     if (this.mode === "spread") {
+     if (this.mode === "two-page") {
        const pageIndex = indices[n];
        const wrap = document.createElement("div");
        wrap.className = "scroll-page two-page-item";
@@ -528,7 +515,7 @@ const Reader = {
  },
 
  prefetch() {
-   const step = this.mode === "spread" ? 2 : 1;
+   const step = this.mode === "two-page" ? 2 : 1;
    [this.index + step, this.index - 1].forEach((i) => this.getPageUrl(i));
  },
 
@@ -756,7 +743,7 @@ const Reader = {
 
  applyModeClass() {
    this.els.viewport.className = "page-viewport";
-   this.els.stage.classList.toggle("mode-spread", this.mode === "spread");
+   this.els.stage.classList.toggle("mode-two-page", this.mode === "two-page");
    this.els.stage.classList.toggle("mode-scroll", this.mode === "scroll" || this.mode === "webcomic");
    this.els.stage.classList.toggle("mode-manga", this.mode === "manga");
  },
@@ -773,8 +760,8 @@ const Reader = {
    });
  },
 
- async stabilizeSpreadLayout() {
-   if (this.mode !== "spread") return;
+ async stabilizeTwoPageLayout() {
+   if (this.mode !== "two-page") return;
 
    await new Promise(resolve => {
      let frames = 4;
@@ -785,7 +772,7 @@ const Reader = {
      requestAnimationFrame(tick);
    });
 
-   if (this.mode !== "spread") return;
+   if (this.mode !== "two-page") return;
    const width = this.els.stage.clientWidth;
    const height = this.els.stage.clientHeight;
    if (width > 0 && height > 0) {
@@ -798,7 +785,7 @@ const Reader = {
    }
    this.els.stage.scrollLeft = 0;
    this.els.stage.scrollTop = 0;
-   this.debugLog(`spread layout settled: ${width}x${height}`);
+   this.debugLog(`two-page layout settled: ${width}x${height}`);
  },
 
  syncIndexFromVisiblePage() {
@@ -931,7 +918,7 @@ const Reader = {
 
    if (this._scrollObserver) { this._scrollObserver.disconnect(); this._scrollObserver = null; }
 
-   const wasTwoPage = this.mode === "spread";
+   const wasTwoPage = this.mode === "two-page";
 
    if (this.mode === "single" && mode !== "single" && this.turnPageMode) {
      await this.turnPageMode.destroy();
@@ -945,13 +932,13 @@ const Reader = {
    this.applyModeClass();
    this.updateModePills();
 
-   // "spread" remains the internal value for backward compatibility with
+   // "two-page" remains the internal value for backward compatibility with
    // saved comics, but it is now the simple Two Page layout. It no longer
    // requests orientation changes or fullscreen, so it cannot poison the
    // viewport state of the other reader modes.
    await this.render();
-   if (this.mode === "spread") {
-     await this.stabilizeSpreadLayout();
+   if (this.mode === "two-page") {
+     await this.stabilizeTwoPageLayout();
      await new Promise(resolve => requestAnimationFrame(resolve));
      this.debugLog(`two-page layout: ${this.els.stage.clientWidth}x${this.els.stage.clientHeight}`);
    }
@@ -1037,7 +1024,7 @@ const Reader = {
      });
      return;
    }
-   const step = this.mode === "spread" ? 2 : 1;
+   const step = this.mode === "two-page" ? 2 : 1;
    this.goTo(this.index + step);
  },
 
@@ -1058,7 +1045,7 @@ const Reader = {
      });
      return;
    }
-   const step = this.mode === "spread" ? 2 : 1;
+   const step = this.mode === "two-page" ? 2 : 1;
    this.goTo(this.index - step);
  },
 
@@ -1172,7 +1159,7 @@ const Reader = {
    const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
 
    const getContinuousTargetAtPoint = (screenX, screenY) => {
-     if (!(this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "spread")) return null;
+     if (!(this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "two-page")) return null;
      const pages = Array.from(this.els.stage.querySelectorAll(".scroll-page"));
      for (const page of pages) {
        const img = page.querySelector("img");
@@ -1296,7 +1283,7 @@ const Reader = {
    };
 
    stage.addEventListener("touchstart", (e) => {
-     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "spread") {
+     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "two-page") {
        if (e.touches.length === 1) {
          const t = e.touches[0];
          continuousTapStart = { x: t.clientX, y: t.clientY };
@@ -1342,7 +1329,7 @@ const Reader = {
    }, { passive: false });
 
    stage.addEventListener("touchmove", (e) => {
-     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "spread") {
+     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "two-page") {
        if (continuousTapStart && e.touches.length === 1) {
          const dx = e.touches[0].clientX - continuousTapStart.x;
          const dy = e.touches[0].clientY - continuousTapStart.y;
@@ -1401,7 +1388,7 @@ const Reader = {
    }, { passive: false });
 
    stage.addEventListener("touchend", (e) => {
-     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "spread") {
+     if (this.mode === "scroll" || this.mode === "webcomic" || this.mode === "manga" || this.mode === "two-page") {
        clearTimeout(continuousHoldTimer);
        continuousHoldTimer = null;
        const t = e.changedTouches[0];
