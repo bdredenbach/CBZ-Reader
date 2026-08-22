@@ -181,6 +181,47 @@ const Reader = {
    this.updateSliderLabel();
    this.updateBookmarkFlag();
    this.saveProgress();
+
+   // Warm the rest of this issue in the background. Mode changes already
+   // pass through render(), so every mode benefits without blocking display.
+   this.precacheIssuePages();
+ },
+
+ async precacheIssuePages() {
+   const comicId = this.comic?.id;
+   const count = this.comic?.pageCount || 0;
+   if (!comicId || !count) return;
+   const token = `${comicId}:${this.comic.updatedAt || ""}`;
+   if (this._precacheToken === token && this._precacheComplete) return;
+   if (this._precachePromise && this._precacheToken === token) return;
+
+   this._precacheToken = token;
+   this._precacheComplete = false;
+   this._precachePromise = (async () => {
+     const batchSize = 4;
+     for (let start = 0; start < count; start += batchSize) {
+       if (this.comic?.id !== comicId) return;
+       await Promise.all(
+         Array.from(
+           { length: Math.min(batchSize, count - start) },
+           (_, n) => this.getPageUrl(start + n).catch(() => null)
+         )
+       );
+       if (this.debugMode) {
+         this.debugLog(
+           `issue pre-cache: ${Math.min(start + batchSize, count)}/${count} page URLs ready`
+         );
+       }
+       await new Promise(resolve => setTimeout(resolve, 0));
+     }
+     if (this.comic?.id === comicId) {
+       this._precacheComplete = true;
+       if (this.debugMode) this.debugLog(`issue pre-cache complete: ${count}/${count}`);
+     }
+   })().finally(() => {
+     if (this.comic?.id === comicId) this._precachePromise = null;
+   });
+   return this._precachePromise;
  },
 
  async preflightPageImage(i) {
