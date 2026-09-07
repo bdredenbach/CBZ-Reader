@@ -89,7 +89,7 @@ async function geometry(){
     stage,baselineCount:0,result}),elapsedMs:Date.now()-started},null,2)}\n`);
 }
 
-async function adaptive(){
+async function adaptive(localOnly=false){
   const page=Number(process.argv[3]);
   const stage=String(process.argv[4]);
   const values=process.argv.slice(5,11).map(Number);
@@ -101,7 +101,7 @@ async function adaptive(){
     _geometryOnlyRescue:stage==='rescue'};
   const img=await loadPage(page);
   const started=Date.now();
-  const result=api.PanelFrameEnvelope._adaptiveFastDetect(img,panel);
+  const result=api.PanelFrameEnvelope._adaptiveFastDetect(img,panel,null,localOnly?{localOnly:true}:undefined);
   process.stdout.write(`${JSON.stringify({...summarize({pageIndex:page,x:tapX,y:tapY,
     stage,baselineCount:0,result}),elapsedMs:Date.now()-started,
     frameEvidence:result?._frameEnvelope||null},null,2)}\n`);
@@ -113,6 +113,7 @@ async function adaptive(){
   if(mode==='routes')return routes();
   if(mode==='probe')return probe();
   if(mode==='geometry')return geometry();
-  if(mode==='adaptive')return adaptive();
+  if(mode==='adaptive')return adaptive(false);
+  if(mode==='quick')return adaptive(true);
   throw new Error(`unknown mode ${mode}`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

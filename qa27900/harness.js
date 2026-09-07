@@ -82,6 +82,11 @@ async function appTap(pageIndex,x,y,{verbose=false,resetCache=true}={}){
     const result=await api.PanelGeometry.refine(url,{...hit,...seedBase,_identitySource:'v73'},log);
     return {pageIndex,x,y,stage:'v73',baselineCount:baseline.length,result,logs};
   }
+  if(api.PanelGeometry.refineAdaptiveOnly){
+    const quick=await api.PanelGeometry.refineAdaptiveOnly(url,{x:.011,y:.013,w:.954,h:.957,
+      ...seedBase,_identitySource:'geometry-rescue',_geometryOnlyRescue:true},log);
+    if(quick)return {pageIndex,x,y,stage:'quick-rescue',baselineCount:baseline.length,result:quick,logs};
+  }
   const hybrid=await api.PanelDetect.detectTapHybrid(url,x,y,log);
   if(hybrid){
     const result=await api.PanelGeometry.refine(url,{...hybrid,...seedBase,_identitySource:'v100'},log);

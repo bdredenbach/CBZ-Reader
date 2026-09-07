@@ -8,11 +8,12 @@ const root=path.resolve(__dirname,'..','..');
 const routes=JSON.parse(fs.readFileSync(path.join(root,'regression-routes.json'),'utf8'));
 const targets=routes.pages.filter(row=>row.policy==='frame');
 const probeScript=path.join(__dirname,'regression-sweep.js');
+const probeMode=process.argv.includes('--full')?'adaptive':'quick';
 
 function run(target){
   return new Promise(resolve=>{
     const started=Date.now();
-    const child=spawn(process.execPath,[probeScript,'adaptive',String(target.page),target.stage,
+    const child=spawn(process.execPath,[probeScript,probeMode,String(target.page),target.stage,
       ...target.seed.map(String),'0.5','0.5'],{
       cwd:root,stdio:['ignore','pipe','pipe']
     });
@@ -48,5 +49,5 @@ function run(target){
     }
   }
   await Promise.all(Array.from({length:3},worker));
-  process.stdout.write(`${JSON.stringify({targets:targets.length,probes:out},null,2)}\n`);
+  process.stdout.write(`${JSON.stringify({mode:probeMode,targets:targets.length,probes:out},null,2)}\n`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
