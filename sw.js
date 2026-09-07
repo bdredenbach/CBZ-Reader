@@ -1,6 +1,6 @@
-// NTH SHELF V2.79.03 — QUICK PROVEN-FRAME ROUTE
+// NTH SHELF V2.79.04 — OPTIONAL WEBASSEMBLY RAIL-KERNEL TEST
 
-const CACHE_NAME = "nth-shelf-shell-2.79.03";
+const CACHE_NAME = "nth-shelf-shell-2.79.04-wasm-test";
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -9,6 +9,8 @@ const SHELL_FILES = [
   "./js/db.js",
   "./js/library.js",
   "./js/panels.js",
+  "./js/panels-frame-wasm.js",
+  "./js/panels-frame-kernel.wasm",
   "./js/panels-frame-envelope.js",
   "./js/panels-geometry-orthogonal.js",
   "./js/panels-geometry-skewed.js",
