@@ -48,15 +48,23 @@ function makeCanvas(){
 }
 
 const context={
-  console,setTimeout,clearTimeout,Uint8Array,Float32Array,Math,Number,Array,Map,Set,
+  console,setTimeout,clearTimeout,Uint8Array,Float32Array,DataView,WebAssembly,Math,Number,Array,Map,Set,
   Image:TestImage,document:{createElement(kind){if(kind!=='canvas')throw new Error(`unsupported element ${kind}`);return makeCanvas();}}
 };
 context.window=context;context.globalThis=context;
 vm.createContext(context);
-for(const name of ['panels.js','panels-geometry-orthogonal.js','panels-geometry-skewed.js','panels-frame-envelope.js','panels-geometry.js']){
+for(const name of ['panels.js','panels-frame-wasm.js']){
   vm.runInContext(fs.readFileSync(path.join(appRoot,'js',name),'utf8'),context,{filename:name});
 }
-const api=vm.runInContext('({PanelDetect,PanelGeometry,PanelFrameEnvelope,PanelGeometrySkewed})',context);
+if(process.env.NTH_DISABLE_WASM!=='1'){
+  context.__nthFrameWasmInstance=new WebAssembly.Instance(new WebAssembly.Module(
+    fs.readFileSync(path.join(appRoot,'js','panels-frame-kernel.wasm'))));
+  vm.runInContext('PanelFrameWasm.attach(__nthFrameWasmInstance)',context);
+}
+for(const name of ['panels-geometry-orthogonal.js','panels-geometry-skewed.js','panels-frame-envelope.js','panels-geometry.js']){
+  vm.runInContext(fs.readFileSync(path.join(appRoot,'js',name),'utf8'),context,{filename:name});
+}
+const api=vm.runInContext('({PanelDetect,PanelGeometry,PanelFrameEnvelope,PanelGeometrySkewed,PanelFrameWasm})',context);
 
 function contains(panel,x,y){
   if(Array.isArray(panel?._quad)){
@@ -143,6 +151,7 @@ function summarize(run){
     owner:p._geometryOwner||null,type:p._geometryType||null,
     rect:[p.x,p.y,p.w,p.h].map(v=>+Number(v).toFixed(4)),quad:q,area:+area.toFixed(4),
     source:p._frameEnvelope?.seedSource||null,consensus:p._frameEnvelope?.seedConsensus||null,
+    wasm:p._frameEnvelope?.wasmRailKernel===true,
     relAdj:p._frameEnvelope?.relativeAdjScore==null?null:+p._frameEnvelope.relativeAdjScore.toFixed(3),
     weakestAdj:p._frameEnvelope?.weakestAdj==null?null:+p._frameEnvelope.weakestAdj.toFixed(3),
     minThickness:p._frameEnvelope?.minThickness==null?null:+p._frameEnvelope.minThickness.toFixed(3),
