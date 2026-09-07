@@ -2418,6 +2418,28 @@ async setMode(mode) {
      return;
    }
 
+   // V2.79.03: before spending time in the sequential identity fallbacks, give
+   // the strict one-search/local-consensus detector one bounded opportunity.
+   // It cannot enter the three-search or exhaustive banks. A miss simply
+   // resumes the unchanged V100 -> V99/V92 -> full-rescue route below.
+   if (url && typeof PanelGeometry !== 'undefined' && PanelGeometry.refineAdaptiveOnly) {
+     if (this.debugMode) this.debugLog("[V2.79.03] BASELINE MISS -> QUICK PROVEN-FRAME ROUTE");
+     const quickSeed = {
+       x: 0.011, y: 0.013, w: 0.954, h: 0.957,
+       _tap: { x: relXImg, y: relYImg },
+       _identitySource: 'geometry-rescue',
+       _baselinePanelCount: Array.isArray(this.currentPanels) ? this.currentPanels.length : 0,
+       _geometryOnlyRescue: true
+     };
+     const quick = await PanelGeometry.refineAdaptiveOnly(url, quickSeed, geometryLogger);
+     if (this.comic?.id === comicId && this.index === pageIndex && quick) {
+       if (this.debugMode) this.debugLog("[V2.79.03] QUICK PROVEN-FRAME HIT -> ZOOM");
+       this.zoomToPanel(quick, stageRect, imgRect);
+       return;
+     }
+     if (this.debugMode) this.debugLog("[V2.79.03] QUICK PROVEN-FRAME MISS -> IDENTITY FALLBACKS");
+   }
+
    // PASS 2A: V100 hybrid structural partitioner. It must prove a page region
    // from sustained frame/gutter structure; otherwise it defers to V99/V92.
    if (this.debugMode) this.debugLog("[V100] PASS 1 MISS -> hybrid structural partition");

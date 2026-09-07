@@ -1,4 +1,4 @@
-// NTH SHELF V2.78.23 — PROVEN-FRAME OWNERSHIP ROUTER
+// NTH SHELF V2.79.03 — QUICK PROVEN-FRAME OWNERSHIP ROUTER
 //
 // Frame extraction and geometry ownership are separate decisions. The envelope
 // first proves a complete four-rail cell; only that finished quadrilateral may
@@ -28,6 +28,32 @@ const PanelGeometry = {
     }
     if(!composite) return {mode:'hold',source:String(inferred).toUpperCase(),reason:'local-seed'};
     return {mode:'frame',source:String(inferred).toUpperCase(),reason:'oversized-composite',area};
+  },
+
+  // Fast front route for a baseline miss. It accepts only the bounded
+  // one-search/local-consensus result and applies the same ownership classifier
+  // as the complete router. A miss returns null so V100/V99/V92 stay untouched.
+  async refineAdaptiveOnly(imgUrl,panel,log){
+    if(!imgUrl||!panel||typeof PanelFrameEnvelope==='undefined'||
+      !PanelFrameEnvelope.detectAdaptiveOnly)return null;
+    const envelope=await PanelFrameEnvelope.detectAdaptiveOnly(imgUrl,panel,log);
+    if(!envelope||!Array.isArray(envelope._quad)||envelope._quad.length!==4||
+      envelope._frameEnvelope?.chainConnected!==true)return null;
+    const ownership=(typeof PanelGeometrySkewed!=='undefined'&&PanelGeometrySkewed.classifyQuad)
+      ?PanelGeometrySkewed.classifyQuad(envelope,log)
+      :{owns:true,owner:'skewed',reason:'classifier-unavailable'};
+    envelope._frameOwnership=ownership;
+    if(ownership.owns){
+      envelope._geometryOwner='skewed-frame';
+      if(log)log('QUICK ROUTER -> SKEWED FRAME');
+      return envelope;
+    }
+    const ortho=(typeof PanelGeometryOrthogonal!=='undefined'&&PanelGeometryOrthogonal.refine)
+      ?PanelGeometryOrthogonal.refine(envelope,log):{...envelope};
+    ortho._geometryOwner='orthogonal-frame';
+    ortho._frameOwnership=ownership;
+    if(log)log('QUICK ROUTER -> ORTHOGONAL FRAME');
+    return ortho;
   },
 
   async refine(imgUrl, panel, log) {

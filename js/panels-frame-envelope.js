@@ -1,4 +1,4 @@
-// NTH SHELF V2.79.02 — ONE-SEARCH LOCAL CONSENSUS FAST PATH
+// NTH SHELF V2.79.03 — QUICK PROVEN-FRAME ROUTE
 //
 // Generate multiple plausible finite rails per side, then choose one four-rail
 // FAMILY that closes around the tap.  Rails are no longer selected independently.
@@ -180,7 +180,7 @@ const PanelFrameEnvelope = {
     const cached=img?._nthFrameLumCache;
     const q=candidate?._quad;
     if(!cached||!Array.isArray(q)||q.length!==4)return false;
-    const {width:w,height:h,lum}=cached;
+    const {width:w,height:h,lum,smooth}=cached;
     if(!w||!h||!lum?.length)return false;
     const x0=Math.max(2,Math.round(spec.x*w));
     const y0=Math.max(2,Math.round(spec.y*h));
@@ -202,7 +202,8 @@ const PanelFrameEnvelope = {
     const pixelLum=(x,y)=>{
       x=Math.max(1,Math.min(w-2,Math.round(x)));
       y=Math.max(1,Math.min(h-2,Math.round(y)));
-      return (lum[(y-1)*w+x]+lum[y*w+x]+lum[(y+1)*w+x]+lum[y*w+x-1]+lum[y*w+x+1])/5;
+      return smooth?.length===w*h?smooth[y*w+x]:
+        (lum[(y-1)*w+x]+lum[y*w+x]+lum[(y+1)*w+x]+lum[y*w+x-1]+lum[y*w+x+1])/5;
     };
     const px=q.map(p=>({x:p.x*w,y:p.y*h}));
     const rails=[
@@ -250,7 +251,7 @@ const PanelFrameEnvelope = {
     return true;
   },
 
-  _adaptiveFastDetect(img,panel,log){
+  _adaptiveFastDetect(img,panel,log,{localOnly=false}={}){
     const tap=panel._tap||{x:panel.x+panel.w/2,y:panel.y+panel.h/2};
     const specs=this._adaptiveSpecOrder(this._adaptiveFastSpecs(panel,tap),tap);
     if(!specs.length)return null;
@@ -275,8 +276,14 @@ const PanelFrameEnvelope = {
         if(log)log(`ADAPTIVE LOCAL HIT source=${primary.spec.name} consensus=${1+confirmationCount}/3 area=${primary.absoluteArea.toFixed(3)} rel=${(e.relativeAdjScore||0).toFixed(2)}`);
         return primary.result;
       }
-      if(log)log(`ADAPTIVE LOCAL MISS source=${primary.spec.name} confirmations=${confirmationCount}/2; full-bank fallback`);
-    }else if(log)log(`ADAPTIVE PRIMARY MISS source=${primarySpec.name}; full-bank fallback`);
+      if(log)log(`ADAPTIVE LOCAL MISS source=${primary.spec.name} confirmations=${confirmationCount}/2${localOnly?'; quick route defers':'; full-bank fallback'}`);
+    }else if(log)log(`ADAPTIVE PRIMARY MISS source=${primarySpec.name}${localOnly?'; quick route defers':'; full-bank fallback'}`);
+
+    // V2.79.03 front-route contract: one complete rail-family search and its
+    // cheap local confirmations are the entire latency budget. A miss returns
+    // immediately to the established identity chain; it must not trigger the
+    // slower three-search or exhaustive geometry banks here.
+    if(localOnly)return null;
 
     // Safety fallback: if the one-search/local-verifier route cannot prove the
     // same frame, retain V2.79.01's complete three-search consensus unchanged.
@@ -319,6 +326,28 @@ const PanelFrameEnvelope = {
     chosen.result._tap=tap;
     if(log)log(`ADAPTIVE FAST HIT source=${chosen.spec.name} consensus=${chosen.consensus}/${trials.length} area=${chosen.absoluteArea.toFixed(3)} rel=${(e.relativeAdjScore||0).toFixed(2)}`);
     return chosen.result;
+  },
+
+  detectAdaptiveOnly(imgUrl,panel,log){
+    if(!imgUrl||!panel)return Promise.resolve(null);
+    const cached=this._cachedFrame(imgUrl,panel,log);
+    if(cached)return Promise.resolve(cached);
+    return new Promise(resolve=>{
+      const img=new Image();
+      img.onload=()=>{
+        try{
+          const result=this._adaptiveFastDetect(img,panel,log,{localOnly:true});
+          this._rememberFrame(imgUrl,result);
+          resolve(result);
+        }catch(err){
+          console.warn('Quick connected frame failed:',err);
+          if(log)log(`QUICK CHAIN RAIL ERROR ${err.message}`);
+          resolve(null);
+        }
+      };
+      img.onerror=()=>resolve(null);
+      img.src=imgUrl;
+    });
   },
 
   detect(imgUrl, panel, log) {
@@ -641,10 +670,11 @@ const PanelFrameEnvelope = {
     const scale=Math.min(1,maxDim/Math.max(img.width,img.height));
     const w=Math.max(1,Math.round(img.width*scale));
     const h=Math.max(1,Math.round(img.height*scale));
-    let lum;
+    let lum,smooth;
     const cached=img._nthFrameLumCache;
     if(cached&&cached.width===w&&cached.height===h&&cached.lum?.length===w*h){
       lum=cached.lum;
+      smooth=cached.smooth;
     }else{
       const canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
       const ctx=canvas.getContext('2d',{willReadFrequently:true});
@@ -652,8 +682,20 @@ const PanelFrameEnvelope = {
       const rgba=ctx.getImageData(0,0,w,h).data;
       lum=new Uint8Array(w*h);
       for(let i=0,j=0;i<rgba.length;i+=4,j++) lum[j]=Math.round(.299*rgba[i]+.587*rgba[i+1]+.114*rgba[i+2]);
-      try{img._nthFrameLumCache={width:w,height:h,lum};}catch(_){/* correctness unchanged */}
     }
+    // V2.79.03: every rail hypothesis repeatedly asks for the same five-pixel
+    // cross average at the same integer coordinates. Precompute those exact
+    // values once per decoded page so each later sample is one lookup instead
+    // of five luminance reads and four additions. Float32 preserves the
+    // previous fractional average and therefore all existing thresholds.
+    if(!smooth||smooth.length!==w*h){
+      smooth=new Float32Array(w*h);
+      for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){
+        smooth[y*w+x]=(lum[(y-1)*w+x]+lum[y*w+x]+lum[(y+1)*w+x]+
+          lum[y*w+x-1]+lum[y*w+x+1])/5;
+      }
+    }
+    try{img._nthFrameLumCache={width:w,height:h,lum,smooth};}catch(_){/* correctness unchanged */}
 
     const x0=Math.max(2,Math.round(panel.x*w));
     const y0=Math.max(2,Math.round(panel.y*h));
@@ -669,7 +711,7 @@ const PanelFrameEnvelope = {
 
     const pixelLum=(x,y)=>{
       x=Math.max(1,Math.min(w-2,Math.round(x))); y=Math.max(1,Math.min(h-2,Math.round(y)));
-      return (lum[(y-1)*w+x]+lum[y*w+x]+lum[(y+1)*w+x]+lum[y*w+x-1]+lum[y*w+x+1])/5;
+      return smooth[y*w+x];
     };
     const rawLum=(x,y)=>{
       x=Math.max(0,Math.min(w-1,Math.round(x))); y=Math.max(0,Math.min(h-1,Math.round(y)));
@@ -707,20 +749,36 @@ const PanelFrameEnvelope = {
         if(negative&&atTap>seedCross+inward)return null;
         if(!negative&&atTap<seedCross-inward)return null;
         let n=0,dark=0,strong=0,longest=0,run=0,segments=0,inSeg=false;
+        let bestStart=null,bestEnd=null,segmentStart=null,lastSegmentDark=null,bestLen=-1;
         let contrastHits=0,balancedHits=0,contrastSum=0;
         const contrastOffset=Math.max(3,Math.min(8,Math.round(crossSpan*.025)));
+        const maxGap=Math.max(step*3,8);
         for(let a=a0;a<=a1;a+=step){
           const p=m*a+b;
           if(p<2||p>=dimCross-2){run=0;inSeg=false;continue;}
-          const v=horizontal?pixelLum(a,p):pixelLum(p,a); n++;
-          const va=horizontal?pixelLum(a,p-contrastOffset):pixelLum(p-contrastOffset,a);
-          const vb=horizontal?pixelLum(a,p+contrastOffset):pixelLum(p+contrastOffset,a);
+          // This is the hottest path in the detector. `a` is already an
+          // in-bounds integer, so index the precomputed cross-average buffer
+          // directly and round/clamp only the changing cross coordinate.
+          const pc=Math.max(1,Math.min(dimCross-2,Math.round(p)));
+          const pa=Math.max(1,Math.min(dimCross-2,Math.round(p-contrastOffset)));
+          const pb=Math.max(1,Math.min(dimCross-2,Math.round(p+contrastOffset)));
+          const v=horizontal?smooth[pc*w+a]:smooth[a*w+pc]; n++;
+          const va=horizontal?smooth[pa*w+a]:smooth[a*w+pa];
+          const vb=horizontal?smooth[pb*w+a]:smooth[a*w+pb];
           const ca=va-v,cb=vb-v,contrast=(ca+cb)/2;
           if(contrast>=10)contrastHits++;
           if(ca>=6&&cb>=6)balancedHits++;
           contrastSum+=Math.max(0,Math.min(80,contrast))/80;
           if(v<=172){dark++;run++;if(run>longest)longest=run;if(!inSeg){segments++;inSeg=true;}}else{run=0;inSeg=false;}
           if(v<=112)strong++;
+          // V2.78's finite-span pass used to sample the identical pixel a
+          // second time. Fold its <=178 segment accounting into this pass.
+          if(v<=178){
+            if(segmentStart===null||(lastSegmentDark!==null&&a-lastSegmentDark>maxGap))segmentStart=a;
+            lastSegmentDark=a;
+            const len=lastSegmentDark-segmentStart;
+            if(len>bestLen){bestLen=len;bestStart=segmentStart;bestEnd=lastSegmentDark;}
+          }
         }
         if(n<16)return null;
         const support=dark/n, continuity=longest/n, strongRate=strong/n;
@@ -732,23 +790,6 @@ const PanelFrameEnvelope = {
         const score=support*2.30+continuity*1.75+strongRate*.45+
           contrastRate*.90+balancedRate*.55+contrastMean*.70-nearestPenalty-fragmentationPenalty;
 
-        const samples=[];
-        for(let a=a0;a<=a1;a+=step){
-          const p=m*a+b;
-          if(p<2||p>=dimCross-2)continue;
-          const v=horizontal?pixelLum(a,p):pixelLum(p,a);
-          samples.push({a,dark:v<=178});
-        }
-        let bestStart=null,bestEnd=null,curStart=null,lastDark=null,bestLen=-1;
-        const maxGap=Math.max(step*3,8);
-        for(const sm of samples){
-          if(sm.dark){
-            if(curStart===null || (lastDark!==null && sm.a-lastDark>maxGap)) curStart=sm.a;
-            lastDark=sm.a;
-            const len=lastDark-curStart;
-            if(len>bestLen){bestLen=len;bestStart=curStart;bestEnd=lastDark;}
-          }
-        }
         if(bestStart===null||bestEnd===null||bestEnd-bestStart<Math.max(12,alongSpan*.15))return null;
         return {kind,horizontal,m,b,anchor,atTap,support,continuity,strongRate,
           contrastRate,balancedRate,contrastMean,segments,score,
