@@ -1,4 +1,4 @@
-// NTH SHELF V2.79.00 — ADAPTIVE PROVEN-FRAME FAST PATH
+// NTH SHELF V2.79.02 — ONE-SEARCH LOCAL CONSENSUS FAST PATH
 //
 // Generate multiple plausible finite rails per side, then choose one four-rail
 // FAMILY that closes around the tap.  Rails are no longer selected independently.
@@ -43,10 +43,10 @@ const PanelFrameEnvelope = {
     while(this._frameCache.size>12)this._frameCache.delete(this._frameCache.keys().next().value);
   },
 
-  // V2.79.00: try a tiny, tap-adaptive seed bank before the exhaustive bank.
-  // Every fast result still comes from _detectSingle's complete four-rail
-  // proof. If the small bank cannot agree, the established exhaustive path
-  // below runs unchanged.
+  // Build the tiny tap-adaptive seed bank used by the proven-frame path.
+  // V2.79.02 runs one complete four-rail search first, then asks the remaining
+  // seed windows to verify that exact geometry locally. If they cannot confirm
+  // it, the established V2.79.01 three-search path below runs unchanged.
   _adaptiveFastSpecs(panel,tap){
     const specs=[];
     const add=(name,w,h,x,y,probe)=>{
@@ -133,28 +133,160 @@ const PanelFrameEnvelope = {
     return specs;
   },
 
+  _adaptiveSpecOrder(specs,tap){
+    if(specs.length<2)return specs;
+    const first=String(specs[0].name||'');
+    let preferred=null;
+    if(first.startsWith('bottom-left-'))preferred='bottom-left-3';
+    else if(first.startsWith('middle-left-'))preferred='middle-left-1';
+    else if(first.startsWith('middle-wide-'))preferred='middle-wide-1';
+    else if(first.startsWith('top-left-'))preferred='top-left-3';
+    else if(first.startsWith('top-right-'))preferred='top-right-1';
+    else if(first.startsWith('identity-top-'))preferred=tap.x<.50?'identity-top-2':'identity-top-1';
+    else if(first.startsWith('bottom-wide-'))preferred='bottom-wide-1';
+    const index=preferred?specs.findIndex(spec=>spec.name===preferred):-1;
+    return index>0?[specs[index],...specs.slice(0,index),...specs.slice(index+1)]:specs;
+  },
+
+  _adaptivePointIn(q,point){
+    let hit=false;
+    for(let i=0,j=q.length-1;i<q.length;j=i++){
+      const a=q[i],b=q[j];
+      if(((a.y>point.y)!==(b.y>point.y))&&
+        point.x<(b.x-a.x)*(point.y-a.y)/(b.y-a.y+1e-9)+a.x)hit=!hit;
+    }
+    return hit;
+  },
+
+  _adaptiveQualifiedTrial(result,spec,tap){
+    if(!result||!Array.isArray(result._quad)||!this._adaptivePointIn(result._quad,tap))return null;
+    const e=result._frameEnvelope||{};
+    const absoluteArea=Math.abs(result._quad.reduce((sum,p,i)=>{
+      const n=result._quad[(i+1)%4];return sum+p.x*n.y-n.x*p.y;
+    },0)/2);
+    const minRelativeAdj=absoluteArea>.15?.86:.78;
+    if(absoluteArea<.040||absoluteArea>.50||!e.chainConnected||
+      (e.seedCoverage||0)<.88||(e.relativeAdjScore||0)<minRelativeAdj||
+      (e.minThickness||0)<.76||(e.adjacencyScore||0)<.18||
+      ((e.weakestAdj||0)<.04&&(e.adjacencyScore||0)<.25))return null;
+    return {result,spec,absoluteArea};
+  },
+
+  // Confirm a fully proven candidate from another seed window without running
+  // the global slope/anchor family search again. This verifier cannot invent
+  // geometry: it checks alternate-window reach, coverage, tap enclosure and
+  // sustained ink on the four rails of the first search's exact quadrilateral.
+  _adaptiveLocalConfirm(img,candidate,spec){
+    const cached=img?._nthFrameLumCache;
+    const q=candidate?._quad;
+    if(!cached||!Array.isArray(q)||q.length!==4)return false;
+    const {width:w,height:h,lum}=cached;
+    if(!w||!h||!lum?.length)return false;
+    const x0=Math.max(2,Math.round(spec.x*w));
+    const y0=Math.max(2,Math.round(spec.y*h));
+    const x1=Math.min(w-3,Math.round((spec.x+spec.w)*w)-1);
+    const y1=Math.min(h-3,Math.round((spec.y+spec.h)*h)-1);
+    const rw=x1-x0+1,rh=y1-y0+1;
+    if(rw<30||rh<30||!this._adaptivePointIn(q,spec.probe))return false;
+
+    const area=Math.abs(q.reduce((sum,p,i)=>{const n=q[(i+1)%4];return sum+p.x*n.y-n.x*p.y;},0)/2)*w*h;
+    const areaRatio=area/Math.max(1,rw*rh);
+    if(areaRatio<.52||areaRatio>1.95)return false;
+    let covered=0,total=0;
+    for(let gy=1;gy<=5;gy++)for(let gx=1;gx<=5;gx++){
+      total++;
+      if(this._adaptivePointIn(q,{x:(x0+rw*gx/6)/w,y:(y0+rh*gy/6)/h}))covered++;
+    }
+    if(covered/total<.44)return false;
+
+    const pixelLum=(x,y)=>{
+      x=Math.max(1,Math.min(w-2,Math.round(x)));
+      y=Math.max(1,Math.min(h-2,Math.round(y)));
+      return (lum[(y-1)*w+x]+lum[y*w+x]+lum[(y+1)*w+x]+lum[y*w+x-1]+lum[y*w+x+1])/5;
+    };
+    const px=q.map(p=>({x:p.x*w,y:p.y*h}));
+    const rails=[
+      {kind:'top',a:px[0],b:px[1],horizontal:true,negative:true,seedCross:y0,crossSpan:rh,dimCross:h},
+      {kind:'right',a:px[1],b:px[2],horizontal:false,negative:false,seedCross:x1,crossSpan:rw,dimCross:w},
+      {kind:'bottom',a:px[3],b:px[2],horizontal:true,negative:false,seedCross:y1,crossSpan:rh,dimCross:h},
+      {kind:'left',a:px[0],b:px[3],horizontal:false,negative:true,seedCross:x0,crossSpan:rw,dimCross:w}
+    ];
+    const probeX=spec.probe.x*(w-1),probeY=spec.probe.y*(h-1);
+    for(const rail of rails){
+      const alongDelta=rail.horizontal?rail.b.x-rail.a.x:rail.b.y-rail.a.y;
+      if(Math.abs(alongDelta)<8)return false;
+      const m=(rail.horizontal?rail.b.y-rail.a.y:rail.b.x-rail.a.x)/alongDelta;
+      const b=(rail.horizontal?rail.a.y:rail.a.x)-m*(rail.horizontal?rail.a.x:rail.a.y);
+      const probeAlong=rail.horizontal?probeX:probeY;
+      const probeCross=rail.horizontal?probeY:probeX;
+      const atProbe=m*probeAlong+b;
+      const outward=Math.max(22,Math.min(rail.dimCross*.20,rail.crossSpan*.92));
+      const inward=Math.max(4,rail.crossSpan*.08);
+      const lo=rail.negative?rail.seedCross-outward:rail.seedCross-inward;
+      const hi=rail.negative?rail.seedCross+inward:rail.seedCross+outward;
+      if(atProbe<lo-2||atProbe>hi+2)return false;
+      if(rail.negative&&atProbe>=probeCross-4)return false;
+      if(!rail.negative&&atProbe<=probeCross+4)return false;
+      const pageEdge=(rail.negative&&atProbe<=rail.dimCross*.025)||
+        (!rail.negative&&atProbe>=rail.dimCross*.975);
+
+      const along0=rail.horizontal?Math.min(rail.a.x,rail.b.x):Math.min(rail.a.y,rail.b.y);
+      const along1=rail.horizontal?Math.max(rail.a.x,rail.b.x):Math.max(rail.a.y,rail.b.y);
+      const step=Math.max(2,(along1-along0)/64);
+      let n=0,dark=0,longest=0,run=0;
+      for(let along=along0;along<=along1;along+=step){
+        const cross=m*along+b;
+        const x=rail.horizontal?along:cross,y=rail.horizontal?cross:along;
+        if(x<7||x>w-8||y<7||y>h-8){run=0;continue;}
+        const value=pixelLum(x,y);n++;
+        if(value<=172){dark++;run++;longest=Math.max(longest,run);}else run=0;
+      }
+      // The full search has already proven the printed page-edge rail. A local
+      // verifier may have too few in-bounds samples after its safety margin;
+      // alternate-window reach is sufficient for that one clipped side.
+      if(pageEdge&&n<16)continue;
+      if(n<16||dark/n<.33||longest/n<.17)return false;
+    }
+    return true;
+  },
+
   _adaptiveFastDetect(img,panel,log){
     const tap=panel._tap||{x:panel.x+panel.w/2,y:panel.y+panel.h/2};
-    const specs=this._adaptiveFastSpecs(panel,tap);
+    const specs=this._adaptiveSpecOrder(this._adaptiveFastSpecs(panel,tap),tap);
     if(!specs.length)return null;
+    const primarySpec=specs[0];
+    const primarySeed={...panel,x:primarySpec.x,y:primarySpec.y,w:primarySpec.w,h:primarySpec.h,
+      _tap:primarySpec.probe,_multiscaleSeed:true,_adaptiveFastSeed:true};
+    const primary=this._adaptiveQualifiedTrial(this._detectSingle(img,primarySeed,null),primarySpec,tap);
+    if(primary){
+      const confirmations=specs.slice(1).map(spec=>this._adaptiveLocalConfirm(img,primary.result,spec));
+      const confirmationCount=confirmations.filter(Boolean).length;
+      const boundedBottomLeft=primary.absoluteArea<=.15&&/^bottom-left-/.test(primary.spec.name);
+      const needed=boundedBottomLeft?1:2;
+      if(confirmationCount>=needed){
+        const e=primary.result._frameEnvelope;
+        e.multiscaleSeedRescue=true;
+        e.adaptiveFastPath=true;
+        e.localConsensusVerifier=true;
+        e.localConfirmations=confirmationCount;
+        e.seedConsensus=1+confirmationCount;
+        e.seedSource=`adaptive-local-${primary.spec.name}`;
+        primary.result._tap=tap;
+        if(log)log(`ADAPTIVE LOCAL HIT source=${primary.spec.name} consensus=${1+confirmationCount}/3 area=${primary.absoluteArea.toFixed(3)} rel=${(e.relativeAdjScore||0).toFixed(2)}`);
+        return primary.result;
+      }
+      if(log)log(`ADAPTIVE LOCAL MISS source=${primary.spec.name} confirmations=${confirmationCount}/2; full-bank fallback`);
+    }else if(log)log(`ADAPTIVE PRIMARY MISS source=${primarySpec.name}; full-bank fallback`);
+
+    // Safety fallback: if the one-search/local-verifier route cannot prove the
+    // same frame, retain V2.79.01's complete three-search consensus unchanged.
     const trials=[];
-    const pointIn=(q)=>{let hit=false;for(let i=0,j=q.length-1;i<q.length;j=i++){
-      const a=q[i],b=q[j];
-      if(((a.y>tap.y)!==(b.y>tap.y))&&tap.x<(b.x-a.x)*(tap.y-a.y)/(b.y-a.y+1e-9)+a.x)hit=!hit;
-    }return hit;};
     for(const spec of specs){
       const seed={...panel,x:spec.x,y:spec.y,w:spec.w,h:spec.h,
         _tap:spec.probe,_multiscaleSeed:true,_adaptiveFastSeed:true};
       const result=this._detectSingle(img,seed,null);
-      if(!result||!Array.isArray(result._quad)||!pointIn(result._quad))continue;
-      const e=result._frameEnvelope||{};
-      const absoluteArea=Math.abs(result._quad.reduce((sum,p,i)=>{const n=result._quad[(i+1)%4];return sum+p.x*n.y-n.x*p.y;},0)/2);
-      const minRelativeAdj=absoluteArea>.15?.86:.78;
-      if(absoluteArea<.040||absoluteArea>.50||!e.chainConnected||
-        (e.seedCoverage||0)<.88||(e.relativeAdjScore||0)<minRelativeAdj||
-        (e.minThickness||0)<.76||(e.adjacencyScore||0)<.18||
-        ((e.weakestAdj||0)<.04&&(e.adjacencyScore||0)<.25))continue;
-      trials.push({result,spec,absoluteArea});
+      const trial=this._adaptiveQualifiedTrial(result,spec,tap);
+      if(trial)trials.push(trial);
     }
     const quadDistance=(a,b)=>a.reduce((sum,p,i)=>sum+Math.hypot(p.x-b[i].x,p.y-b[i].y),0)/4;
     for(const trial of trials){
