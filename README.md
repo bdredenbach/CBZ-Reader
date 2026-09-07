@@ -106,7 +106,7 @@ Nth Shelf can be installed as a PWA on supported devices. The app shell is cache
 7. Use Backup/Restore to keep a safety copy.
 
 ## 🧪 Current Release
-**Version 2.79.03 Quick Proven-Frame Route**
+**Version 2.79.04 Quick Proven-Frame Route**
 
 ## 🧪 Release History (Newest First)
 
