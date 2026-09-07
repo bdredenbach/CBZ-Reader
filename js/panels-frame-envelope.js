@@ -1,4 +1,4 @@
-// NTH SHELF V2.79.03 — QUICK PROVEN-FRAME ROUTE
+// NTH SHELF V2.79.04 — OPTIONAL WASM RAIL KERNEL TEST
 //
 // Generate multiple plausible finite rails per side, then choose one four-rail
 // FAMILY that closes around the tap.  Rails are no longer selected independently.
@@ -696,6 +696,11 @@ const PanelFrameEnvelope = {
       }
     }
     try{img._nthFrameLumCache={width:w,height:h,lum,smooth};}catch(_){/* correctness unchanged */}
+    let wasmRailKernel=false;
+    try{
+      wasmRailKernel=typeof PanelFrameWasm!=='undefined'&&PanelFrameWasm.ready===true&&
+        PanelFrameWasm.begin(smooth,w,h)===true;
+    }catch(_){wasmRailKernel=false;}
 
     const x0=Math.max(2,Math.round(panel.x*w));
     const y0=Math.max(2,Math.round(panel.y*h));
@@ -741,7 +746,7 @@ const PanelFrameEnvelope = {
       const step=Math.max(2,Math.round((a1-a0)/120));
       const pool=[];
 
-      const evaluate=(m,anchor)=>{
+      const evaluateJs=(m,anchor)=>{
         const b=anchor-m*(horizontal?tx:ty);
         const atTap=m*(horizontal?tx:ty)+b;
         if(negative&&atTap>=tapCross-4)return null;
@@ -794,6 +799,24 @@ const PanelFrameEnvelope = {
         return {kind,horizontal,m,b,anchor,atTap,support,continuity,strongRate,
           contrastRate,balancedRate,contrastMean,segments,score,
           span0:bestStart,span1:bestEnd,spanLen:bestEnd-bestStart};
+      };
+
+      const evaluate=(m,anchor)=>{
+        if(wasmRailKernel){
+          try{
+            const c=PanelFrameWasm.evaluate(horizontal,negative,w,h,tx,ty,
+              tapCross,seedCross,outward,inward,a0,a1,step,crossSpan,alongSpan,m,anchor);
+            return c?{kind,horizontal,m,b:c.b,anchor,atTap:c.atTap,
+              support:c.support,continuity:c.continuity,strongRate:c.strongRate,
+              contrastRate:c.contrastRate,balancedRate:c.balancedRate,
+              contrastMean:c.contrastMean,segments:c.segments,score:c.score,
+              span0:c.span0,span1:c.span1,spanLen:c.spanLen}:null;
+          }catch(error){
+            wasmRailKernel=false;
+            if(log)log(`WASM RAIL FALLBACK ${error?.message||error}`);
+          }
+        }
+        return evaluateJs(m,anchor);
       };
 
       const slopeLimit=.46;
@@ -1142,6 +1165,6 @@ const PanelFrameEnvelope = {
     const br=Math.min(1,Math.max(...xs)),bb=Math.min(1,Math.max(...ys));
     const confidence=Math.min(1,rails.reduce((s,r)=>s+r.support+r.continuity,0)/8);
     if(log)log(`OUTER LOOP HIT area=${areaRatio.toFixed(2)} coverage=${family.seedCoverage.toFixed(2)} confidence=${confidence.toFixed(2)} bridged=${bridgeMeta.filter(b=>b.bridged).length}/4 quad=${quad.map(p=>`${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(' | ')}`);
-    return {...panel,x:bx,y:by,w:Math.max(.001,br-bx),h:Math.max(.001,bb-by),_quad:quad,_geometryType:'tap-neighborhood-frame',_frameEnvelope:{confidence,areaRatio,sides:4,connected:true,shortBridge:true,chainConnected:true,outermostLoop:true,neighborSideConsistency:true,railBandThickness:true,relativeAdjScore:family.relativeAdjScore,adjacencyScore:family.adjacencyScore,adjSides:family.adj.map(a=>a.score),weakestAdj:family.weakestAdj,thicknessScore:family.avgThickness,minThickness:family.minThickness,thicknessSides:family.thickness.map(t=>t.score),familyScore:family.score,seedCoverage:family.seedCoverage,bridgedCorners:bridgeMeta.filter(b=>b.bridged).length}};
+    return {...panel,x:bx,y:by,w:Math.max(.001,br-bx),h:Math.max(.001,bb-by),_quad:quad,_geometryType:'tap-neighborhood-frame',_frameEnvelope:{confidence,areaRatio,sides:4,connected:true,shortBridge:true,chainConnected:true,outermostLoop:true,neighborSideConsistency:true,railBandThickness:true,wasmRailKernel,relativeAdjScore:family.relativeAdjScore,adjacencyScore:family.adjacencyScore,adjSides:family.adj.map(a=>a.score),weakestAdj:family.weakestAdj,thicknessScore:family.avgThickness,minThickness:family.minThickness,thicknessSides:family.thickness.map(t=>t.score),familyScore:family.score,seedCoverage:family.seedCoverage,bridgedCorners:bridgeMeta.filter(b=>b.bridged).length}};
   }
 };
