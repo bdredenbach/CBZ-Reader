@@ -58,7 +58,7 @@ Auto Scroll is available in **Scroll, Manga,** and **Webcomic** modes.
 
 - The **Auto Scroll** button appears only in modes that support continuous scrolling.
 - The button is dark when off and red when active, matching the Bubble Zoom control style.
-- Use the speed control to select **0.0x, 0.33x, 0.50x, 0.66x,** or **1.0x**.
+- Use the speed control to select **0.0x, 0.33x, 0.50x, 0.66x, 1.00x** or **2.00x**.
 - Use the play/pause control to stop and resume scrolling without leaving the mode.
 - The control panel fades almost completely into the artwork while idle and becomes visible when interacted with.
 - The control panel can be moved to a more convenient position.
@@ -106,9 +106,13 @@ Nth Shelf can be installed as a PWA on supported devices. The app shell is cache
 7. Use Backup/Restore to keep a safety copy.
 
 ## 🧪 Current Release
-**Version 2.78.23 Proven-Frame Ownership Test**
+**Version 2.79.01 Adaptive Proven-Frame Fast Path**
 
 ## 🧪 Release History (Newest First)
+
+## V2.79.01 Adaptive Proven-Frame Fast Path
+
+V2.79.01 adds a conservative tap-adaptive seed bank ahead of the established exhaustive four-rail search. Rail discovery now uses a stable internal viewpoint for each candidate cell, while the user's actual tap is used separately to prove containment; moving a tap within one panel therefore cannot change the seed's rail ranking. Large or wide frames require three agreeing seeds and stronger relative rail separation, while the narrow bottom-left page-edge family retains a bounded two-seed exception. The six-frame sepia stress page passed all 12 cold app-path checks: both top frames remained orthogonal and all four overlapping lower frames retained skew ownership from canonical and moved taps. Across the other 73 pages, all 25 routes eligible to invoke the new fast bank rejected it safely, including the page-39 artwork loop found during regression testing; unchanged hold, inspect, and exhaustive fallback behavior remains intact.
 
 ## V2.78.23 Proven-Frame Ownership Test
 

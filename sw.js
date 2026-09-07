@@ -1,6 +1,6 @@
-// NTH SHELF V2.78.23 — PROVEN-FRAME OWNERSHIP TEST
+// NTH SHELF V2.79.01 — ADAPTIVE PROVEN-FRAME FAST PATH
 
-const CACHE_NAME = "nth-shelf-shell-2.78.23";
+const CACHE_NAME = "nth-shelf-shell-2.79.01";
 const SHELL_FILES = [
   "./",
   "./index.html",
