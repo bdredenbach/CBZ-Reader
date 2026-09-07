@@ -2400,7 +2400,8 @@ async setMode(mode) {
      const seeded = {
        ...seed,
        _tap: { x: relXImg, y: relYImg },
-       _identitySource: identitySource || seed._identitySource || 'unknown'
+       _identitySource: identitySource || seed._identitySource || 'unknown',
+       _baselinePanelCount: Array.isArray(this.currentPanels) ? this.currentPanels.length : 0
      };
      if (!url || typeof PanelGeometry === 'undefined' || !PanelGeometry.refine) return seeded;
      return (await PanelGeometry.refine(url, seeded, geometryLogger)) || seeded;

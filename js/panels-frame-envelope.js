@@ -1,4 +1,4 @@
-// NTH SHELF V2.78.23 — RAIL-BAND CELL INTEGRITY / OWNERSHIP SUPPORT
+// NTH SHELF V2.79.00 — ADAPTIVE PROVEN-FRAME FAST PATH
 //
 // Generate multiple plausible finite rails per side, then choose one four-rail
 // FAMILY that closes around the tap.  Rails are no longer selected independently.
@@ -6,12 +6,197 @@
 // -> top using direct or tightly bounded short-bridge corner evidence.
 
 const PanelFrameEnvelope = {
+  _frameCache: new Map(),
+
+  _cachedFrame(imgUrl,panel,log){
+    const tap=panel?._tap;
+    const entries=this._frameCache.get(imgUrl)||[];
+    if(!tap||!entries.length)return null;
+    const inside=(q)=>{let hit=false;for(let i=0,j=q.length-1;i<q.length;j=i++){
+      const a=q[i],b=q[j];
+      if(((a.y>tap.y)!==(b.y>tap.y))&&tap.x<(b.x-a.x)*(tap.y-a.y)/(b.y-a.y+1e-9)+a.x)hit=!hit;
+    }return hit;};
+    const matches=entries.filter(e=>inside(e._quad)).sort((a,b)=>a._cacheArea-b._cacheArea);
+    if(!matches.length)return null;
+    const hit=matches[0];
+    if(log)log(`FRAME CACHE HIT area=${hit._cacheArea.toFixed(3)}`);
+    return {...panel,x:hit.x,y:hit.y,w:hit.w,h:hit.h,
+      _quad:hit._quad.map(p=>({...p})),_geometryType:'tap-neighborhood-frame',
+      _frameEnvelope:{...hit._frameEnvelope,cacheHit:true}};
+  },
+
+  _rememberFrame(imgUrl,result){
+    if(!imgUrl||!result?._frameEnvelope||!Array.isArray(result._quad))return;
+    const area=Math.abs(result._quad.reduce((s,p,i)=>{const n=result._quad[(i+1)%result._quad.length];return s+p.x*n.y-n.x*p.y;},0)/2);
+    const e=result._frameEnvelope;
+    // A one-off offset/probe family can be useful as a live fallback, but it
+    // must not become page authority and steal later taps. Cache only frames
+    // independently rediscovered by at least two seeds.
+    if(area<.020||area>.50||(e.confidence||0)<.70||(e.seedConsensus||0)<2)return;
+    const entries=this._frameCache.get(imgUrl)||[];
+    const distance=(a,b)=>a.reduce((s,p,i)=>s+Math.hypot(p.x-b[i].x,p.y-b[i].y),0)/a.length;
+    if(!entries.some(old=>distance(old._quad,result._quad)<=.025)){
+      entries.push({...result,_cacheArea:area,_quad:result._quad.map(p=>({...p})),_frameEnvelope:{...e}});
+      if(entries.length>24)entries.shift();
+    }
+    this._frameCache.delete(imgUrl);this._frameCache.set(imgUrl,entries);
+    while(this._frameCache.size>12)this._frameCache.delete(this._frameCache.keys().next().value);
+  },
+
+  // V2.79.00: try a tiny, tap-adaptive seed bank before the exhaustive bank.
+  // Every fast result still comes from _detectSingle's complete four-rail
+  // proof. If the small bank cannot agree, the established exhaustive path
+  // below runs unchanged.
+  _adaptiveFastSpecs(panel,tap){
+    const specs=[];
+    const add=(name,w,h,x,y,probe)=>{
+      w=Math.max(.18,Math.min(.94,w));
+      h=Math.max(.16,Math.min(.94,h));
+      x=Math.max(.015,Math.min(.985-w,x));
+      y=Math.max(.015,Math.min(.985-h,y));
+      // Rail discovery must be stable for every tap inside the same cell.
+      // Use the seed's own center as its proof viewpoint; the real tap is
+      // checked separately against the finished quadrilateral below.
+      specs.push({name,x,y,w,h,probe:probe||{x:x+w*.5,y:y+h*.5}});
+    };
+    const identity=panel?._identitySeed;
+    const topBand=tap.y<.30;
+    const bottomBand=tap.y>.66;
+    const leftBand=tap.x<.35;
+    const rightEdge=(w)=>tap.x>.62?.972-w:tap.x-w*.55;
+
+    if(topBand&&identity&&identity.w>=.24&&identity.h>=.12&&identity.h<=.42){
+      const left=tap.x<.50;
+      const dims=[
+        [identity.w,identity.h*1.08],
+        [identity.w*.96,identity.h*1.04],
+        [identity.w*1.03,identity.h*1.16]
+      ];
+      for(let i=0;i<dims.length;i++){
+        const [w,h]=dims[i];
+        add(`identity-top-${i+1}`,w,h,left ? .015 : .985-w,.015,
+          {x:left?.25:.75,y:.15});
+      }
+      return specs;
+    }
+
+    if(topBand){
+      // A local boundary seed is not guaranteed for artwork-heavy top cells.
+      // Keep a small half-page bank so a cold geometry-rescue tap still uses
+      // the same viewpoint as a neighboring tap that did receive an identity.
+      const left=tap.x<.50;
+      const dims=[[.500,.340],[.480,.330],[.515,.355]];
+      for(let i=0;i<dims.length;i++){
+        const [w,h]=dims[i];
+        add(`top-${left?'left':'right'}-${i+1}`,w,h,left?.015:.985-w,.015,
+          {x:left?.25:.75,y:.15});
+      }
+      return specs;
+    }
+
+    if(bottomBand&&leftBand){
+      // Bottom-left page-edge cells are especially sensitive to a seed whose
+      // top is a few pixels too high. Pinning the lower edge to the page keeps
+      // the sloped top rail inside the search neighborhood for every tap in
+      // the cell.
+      for(const [i,h] of [.440,.439,.437].entries())add(`bottom-left-${i+1}`,.280,h,.015,.985-h,{x:.14,y:.78});
+      return specs;
+    }
+    if(bottomBand){
+      const dims=[[.680,.340],[.620,.340],[.620,.320]];
+      for(let i=0;i<dims.length;i++){
+        const [w,h]=dims[i];
+        add(`bottom-wide-${i+1}`,w,h,rightEdge(w),.985-h,{x:.66,y:.83});
+      }
+      return specs;
+    }
+    if(leftBand){
+      const dims=[[.380,.280],[.400,.300],[.380,.260]];
+      for(let i=0;i<dims.length;i++){
+        const [w,h]=dims[i];
+        add(`middle-left-${i+1}`,w,h,.028,.45-h*.537,{x:.20,y:.45});
+      }
+      return specs;
+    }
+
+    const dims=[[.600,.420],[.680,.440]];
+    for(let i=0;i<dims.length;i++){
+      const [w,h]=dims[i];
+      // Do not let a middle-row seed climb into the top pair. This was the
+      // source of the slow top-plus-lower union fallback on the sepia page.
+      add(`middle-wide-${i+1}`,w,h,rightEdge(w),Math.max(.220,.46-h*.537),{x:.70,y:.46});
+    }
+    {
+      const w=.600,h=.420;
+      add('middle-wide-confirm',w,h,rightEdge(w),Math.max(.220,.46-h*.537)+.006,{x:.70,y:.46});
+    }
+    return specs;
+  },
+
+  _adaptiveFastDetect(img,panel,log){
+    const tap=panel._tap||{x:panel.x+panel.w/2,y:panel.y+panel.h/2};
+    const specs=this._adaptiveFastSpecs(panel,tap);
+    if(!specs.length)return null;
+    const trials=[];
+    const pointIn=(q)=>{let hit=false;for(let i=0,j=q.length-1;i<q.length;j=i++){
+      const a=q[i],b=q[j];
+      if(((a.y>tap.y)!==(b.y>tap.y))&&tap.x<(b.x-a.x)*(tap.y-a.y)/(b.y-a.y+1e-9)+a.x)hit=!hit;
+    }return hit;};
+    for(const spec of specs){
+      const seed={...panel,x:spec.x,y:spec.y,w:spec.w,h:spec.h,
+        _tap:spec.probe,_multiscaleSeed:true,_adaptiveFastSeed:true};
+      const result=this._detectSingle(img,seed,null);
+      if(!result||!Array.isArray(result._quad)||!pointIn(result._quad))continue;
+      const e=result._frameEnvelope||{};
+      const absoluteArea=Math.abs(result._quad.reduce((sum,p,i)=>{const n=result._quad[(i+1)%4];return sum+p.x*n.y-n.x*p.y;},0)/2);
+      const minRelativeAdj=absoluteArea>.15?.86:.78;
+      if(absoluteArea<.040||absoluteArea>.50||!e.chainConnected||
+        (e.seedCoverage||0)<.88||(e.relativeAdjScore||0)<minRelativeAdj||
+        (e.minThickness||0)<.76||(e.adjacencyScore||0)<.18||
+        ((e.weakestAdj||0)<.04&&(e.adjacencyScore||0)<.25))continue;
+      trials.push({result,spec,absoluteArea});
+    }
+    const quadDistance=(a,b)=>a.reduce((sum,p,i)=>sum+Math.hypot(p.x-b[i].x,p.y-b[i].y),0)/4;
+    for(const trial of trials){
+      trial.consensus=trials.filter(other=>quadDistance(trial.result._quad,other.result._quad)<=.035).length;
+      const e=trial.result._frameEnvelope||{};
+      trial.rank=(e.relativeAdjScore||0)*5.2+(e.confidence||0)+
+        (e.seedCoverage||0)*.7+(e.familyScore||0)*.04+
+        (e.weakestAdj||0)*5+(e.adjacencyScore||0)*2+
+        (e.minThickness||0)*2+(e.thicknessScore||0)-trial.absoluteArea*2;
+    }
+    // Large/wide cells need three independent discoveries. Two-seed agreement
+    // can otherwise lock onto a strong artwork loop spanning multiple panels.
+    // The narrow bottom-left page-edge family is the sole bounded exception:
+    // its fourth side can be almost inkless, but two seeds still recover the
+    // same small enclosing cell.
+    const agreed=trials.filter(t=>t.consensus>=3||(
+      t.consensus>=2&&t.absoluteArea<=.15&&/^bottom-left-/.test(t.spec.name)
+    )).sort((a,b)=>b.rank-a.rank);
+    if(!agreed.length){
+      if(log)log(`ADAPTIVE FAST MISS proven=${trials.length}/${specs.length}; exhaustive fallback`);
+      return null;
+    }
+    const chosen=agreed[0],e=chosen.result._frameEnvelope;
+    e.multiscaleSeedRescue=true;
+    e.adaptiveFastPath=true;
+    e.seedConsensus=chosen.consensus;
+    e.seedSource=`adaptive-${chosen.spec.name}`;
+    // Downstream ownership and caching belong to the user's tap, not the
+    // internal rail-discovery viewpoint.
+    chosen.result._tap=tap;
+    if(log)log(`ADAPTIVE FAST HIT source=${chosen.spec.name} consensus=${chosen.consensus}/${trials.length} area=${chosen.absoluteArea.toFixed(3)} rel=${(e.relativeAdjScore||0).toFixed(2)}`);
+    return chosen.result;
+  },
+
   detect(imgUrl, panel, log) {
     if (!imgUrl || !panel) return Promise.resolve(null);
+    const cached=this._cachedFrame(imgUrl,panel,log);
+    if(cached)return Promise.resolve(cached);
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
-        try { resolve(this._detect(img, panel, log)); }
+        try { const result=this._detect(img, panel, log);this._rememberFrame(imgUrl,result);resolve(result); }
         catch (err) {
           console.warn('Connected frame failed:', err);
           if (log) log(`CHAIN RAIL ERROR ${err.message}`);
@@ -24,7 +209,6 @@ const PanelFrameEnvelope = {
   },
 
   _detect(img, panel, log) {
-    const primary=this._detectSingle(img,panel,log);
     const seedArea=Math.max(.001,panel.w*panel.h);
     // A wide, shallow comic panel is not suspicious merely because its width
     // exceeds half the page. Rescue is reserved for seeds that plausibly span
@@ -32,17 +216,25 @@ const PanelFrameEnvelope = {
     const suspiciousSeed=seedArea>.24||
       (panel.w>.82&&panel.h>.28)||
       (panel.h>.82&&panel.w>.28);
+    if(suspiciousSeed){
+      const fast=this._adaptiveFastDetect(img,panel,log);
+      if(fast)return fast;
+    }
+    const primary=this._detectSingle(img,panel,log);
     // A panel-scale seed now passes strict family/locality checks on its own.
     // Do not let unrelated tap-centered rescues replace that proven loop.
     if(primary&&!suspiciousSeed)return primary;
 
     const tap=panel._tap||{x:panel.x+panel.w/2,y:panel.y+panel.h/2};
     const seedSizes=[
-      [.28,.32],[.30,.32],[.30,.24],[.46,.13],[.46,.14],[.46,.24],[.50,.30],
-      [.50,.40],[.62,.32],[.62,.40],[.68,.36],[.94,.24]
+      [.14,.62],[.18,.50],[.18,.94],[.24,.50],[.28,.32],
+      [.28,.44],[.30,.18],[.30,.24],[.30,.32],[.38,.18],[.38,.24],
+      [.46,.11],[.46,.13],[.46,.14],[.46,.24],[.50,.30],[.50,.40],[.54,.50],
+      [.60,.42],[.62,.14],[.62,.18],[.62,.32],[.62,.40],[.68,.36],[.68,.40],
+      [.94,.14],[.94,.18],[.94,.24]
     ];
     const trials=[];
-    if(primary&&(!suspiciousSeed||Math.abs(primary._quad.reduce((s,p,i)=>{
+    if(primary&&(!suspiciousSeed||panel._structuralCompositeSeed||Math.abs(primary._quad.reduce((s,p,i)=>{
       const n=primary._quad[(i+1)%4];return s+p.x*n.y-n.x*p.y;
     },0)/2)<=.34))trials.push({result:primary,seed:panel,source:'primary'});
 
@@ -55,6 +247,17 @@ const PanelFrameEnvelope = {
         ['x34',tap.x-sw*.34,tap.y-sh*.50],['x66',tap.x-sw*.66,tap.y-sh*.50],
         ['y34',tap.x-sw*.50,tap.y-sh*.34],['y66',tap.x-sw*.50,tap.y-sh*.66]
       ];
+      // A tap near the end of a long shallow cell used to center the seed on
+      // adjacent artwork and miss the opposite rail. These placements still
+      // pass through the same strict closed-family detector.
+      if(sw>=.38&&sh<=.32)placements.push(
+        ['x10',tap.x-sw*.10,tap.y-sh*.50],['x26',tap.x-sw*.26,tap.y-sh*.50],
+        ['x74',tap.x-sw*.74,tap.y-sh*.50],['x90',tap.x-sw*.90,tap.y-sh*.50]
+      );
+      if(sw>=.54&&sh>=.34)placements.push(
+        ['x42',tap.x-sw*.42,tap.y-sh*.50],['x58',tap.x-sw*.58,tap.y-sh*.50],
+        ['y44',tap.x-sw*.50,tap.y-sh*.44],['y60',tap.x-sw*.50,tap.y-sh*.60]
+      );
       for(const [placement,sxBase,syBase] of placements){
         const sx=Math.max(.015,Math.min(.985-sw,sxBase));
         const sy=Math.max(.015,Math.min(.985-sh,syBase));
@@ -97,7 +300,72 @@ const PanelFrameEnvelope = {
       const a=quad[i],b=quad[j];
       if(((a.y>tap.y)!==(b.y>tap.y))&&(tap.x<(b.x-a.x)*(tap.y-a.y)/(b.y-a.y+1e-9)+a.x))inside=!inside;
     }return inside;};
-    const probes=[[-.10,0],[.10,0],[0,-.085],[0,.085]];
+    const identity=panel._identitySeed;
+    if(panel._edgeClippedSeed&&identity){
+      const rowLike=identity.w>=.60&&identity.h<=.24;
+      const columnLike=identity.h>=.60&&identity.w<=.24;
+      if(rowLike||columnLike){
+        for(const pad of [.025,.060]){
+          const sx=rowLike?.015:Math.max(.015,identity.x-pad);
+          const sy=rowLike?Math.max(.015,identity.y-pad):.015;
+          const sw=rowLike?.970:Math.min(.970,identity.w+pad*2);
+          const sh=rowLike?Math.min(.45,identity.h+pad*2):.970;
+          const probe=rowLike
+            ?{x:.50,y:Math.max(.04,Math.min(.96,identity.y+identity.h/2))}
+            :{x:Math.max(.04,Math.min(.96,identity.x+identity.w/2)),y:.50};
+          const seed={...panel,x:sx,y:sy,w:sw,h:sh,_tap:probe,_multiscaleSeed:true,_identityAlignedRepair:true};
+          const result=this._detectSingle(img,seed,null);
+          if(result&&originalInside(result._quad))trials.push({result,seed,source:`identity-${rowLike?'row':'column'}-${pad.toFixed(3)}`});
+        }
+      }
+      const identityArea=identity.w*identity.h;
+      if(!rowLike&&!columnLike&&identityArea>=.025&&identityArea<=.30&&
+        identity.w<=.46&&identity.h<=.30){
+        for(const factor of [1.16,1.24]){
+          const sw=Math.min(.68,identity.w*factor),sh=Math.min(.58,identity.h*factor);
+          const cx=identity.x+identity.w/2,cy=identity.y+identity.h/2;
+          const sx=Math.max(.015,Math.min(.985-sw,cx-sw/2));
+          const sy=Math.max(.015,Math.min(.985-sh,cy-sh/2));
+          const seed={...panel,x:sx,y:sy,w:sw,h:sh,_tap:tap,
+            _multiscaleSeed:true,_identityLocalRepair:true};
+          const result=this._detectSingle(img,seed,null);
+          if(result&&originalInside(result._quad))trials.push({result,seed,source:`identity-local-${factor.toFixed(2)}`});
+        }
+      }
+    }
+    const viewpointBanks=[
+      {dx:-.18,dy:0,sizes:[[.38,.18],[.50,.40],[.62,.18],[.94,.14]]},
+      {dx:.18,dy:0,sizes:[[.38,.18],[.50,.40],[.62,.18],[.94,.14]]},
+      {dx:0,dy:-.12,sizes:[[.18,.50],[.24,.50],[.38,.22],[.62,.22],[.68,.36]]},
+      {dx:0,dy:.12,sizes:[[.18,.50],[.24,.50],[.38,.22],[.62,.22],[.68,.36]]}
+    ];
+    const viewpointSeeds=new Set();
+    for(const bank of viewpointBanks){
+      const probe={x:Math.max(.04,Math.min(.96,tap.x+bank.dx)),y:Math.max(.04,Math.min(.96,tap.y+bank.dy))};
+      for(const [sw,sh] of bank.sizes){
+        const edgeX=probe.x>.72?.972-sw:probe.x<.28?.028:probe.x-sw/2;
+        const edgeY=probe.y>.82?.972-sh:probe.y<.18?.028:probe.y-sh/2;
+        const placements=[['edge',edgeX,edgeY],['center',probe.x-sw/2,probe.y-sh/2]];
+        if(bank.dx)placements.push(['y34',probe.x-sw/2,probe.y-sh*.34]);
+        if(bank.dy){
+          placements.push(['x34',probe.x-sw*.34,probe.y-sh/2]);
+          placements.push(['row',probe.x-sw/2,probe.y-sh*(bank.dy<0?.30:.70)]);
+          placements.push(['row-x10',probe.x-sw*.10,probe.y-sh*(bank.dy<0?.30:.70)]);
+          placements.push(['row-x90',probe.x-sw*.90,probe.y-sh*(bank.dy<0?.30:.70)]);
+        }
+        for(const [placement,sxBase,syBase] of placements){
+          const sx=Math.max(.015,Math.min(.985-sw,sxBase));
+          const sy=Math.max(.015,Math.min(.985-sh,syBase));
+          const viewKey=`${probe.x.toFixed(3)}:${probe.y.toFixed(3)}:${sx.toFixed(3)}:${sy.toFixed(3)}:${sw}:${sh}`;
+          if(viewpointSeeds.has(viewKey))continue;
+          viewpointSeeds.add(viewKey);
+          const seed={...panel,x:sx,y:sy,w:sw,h:sh,_tap:probe,_multiscaleSeed:true,_viewpointProbe:true};
+          const result=this._detectSingle(img,seed,null);
+          if(result&&originalInside(result._quad))trials.push({result,seed,source:`view${bank.dx>=0?'+':''}${bank.dx.toFixed(2)},${bank.dy>=0?'+':''}${bank.dy.toFixed(2)}-${sw.toFixed(2)}x${sh.toFixed(2)}-${placement}`});
+        }
+      }
+    }
+    const probes=[[-.14,0],[.14,0],[0,-.12],[0,.12]];
     for(const [dx,dy] of probes){
       const probe={x:Math.max(.04,Math.min(.96,tap.x+dx)),y:Math.max(.04,Math.min(.96,tap.y+dy))};
       const sw=.245,sh=.285;
@@ -128,8 +396,10 @@ const PanelFrameEnvelope = {
       trial.originalCornerMax=Math.max(...cornerErrors);
       trial.rank=(e.relativeAdjScore||0)*5.2+(e.confidence||0)+
         (e.seedCoverage||0)*.7+(e.familyScore||0)*.04+
-        (e.weakestAdj||0)*5.0+(e.adjacencyScore||0)*2.0-
-        (e.minThickness||0)*5.0+(e.thicknessScore||0)-
+        (e.weakestAdj||0)*5.0+(e.adjacencyScore||0)*2.0+
+        // Thick coherent printed rails are positive evidence. The previous
+        // minus sign accidentally rewarded one-pixel artwork contours.
+        (e.minThickness||0)*2.0+(e.thicknessScore||0)-
         Math.abs(Math.log(Math.max(.01,e.areaRatio||1)))*.25-trial.absoluteArea*2.0;
       if(!suspiciousSeed){
         trial.rank-=Math.abs(Math.log(Math.max(.01,trial.originalAreaRatio)))*3.0;
@@ -138,18 +408,91 @@ const PanelFrameEnvelope = {
       if(trial.source==='primary'&&!suspiciousSeed)trial.rank+=.55;
     }
     trials.sort((a,b)=>b.rank-a.rank);
-    if(log)log(`SEED BANK TOP ${trials.slice(0,8).map(t=>`${t.source}@${t.rank.toFixed(2)} c${t.consensus} a${t.absoluteArea.toFixed(3)} weak${(t.result._frameEnvelope?.weakestAdj||0).toFixed(2)} thick${(t.result._frameEnvelope?.minThickness||0).toFixed(2)} q=${t.result._quad.map(p=>`${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(';')}`).join(' || ')}`);
+    if(log)log(`SEED BANK TOP ${trials.slice(0,16).map(t=>`${t.source}@${t.rank.toFixed(2)} c${t.consensus} a${t.absoluteArea.toFixed(3)} rel${(t.result._frameEnvelope?.relativeAdjScore||0).toFixed(2)} cov${(t.result._frameEnvelope?.seedCoverage||0).toFixed(2)} weak${(t.result._frameEnvelope?.weakestAdj||0).toFixed(2)} thick${(t.result._frameEnvelope?.minThickness||0).toFixed(2)} q=${t.result._quad.map(p=>`${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(';')}`).join(' || ')}`);
     // Page/row rescue is cell selection. If several candidates have four
     // adequately supported separators, the smallest complete tap-containing
     // cell wins over a union of neighboring cells. When no such cell exists,
     // ordinary evidence ranking remains the fallback.
+    const isDarkArtworkCell=(t)=>{
+      const e=t.result._frameEnvelope||{};
+      return t.consensus>=3&&(e.adjacencyScore||0)>=.30&&
+        (e.relativeAdjScore||0)>=.85&&(e.weakestAdj||0)>=.06&&
+        (e.minThickness||0)>=.78&&(e.seedCoverage||0)>=.88;
+    };
     const completeCells=suspiciousSeed?trials.filter(t=>{
       const e=t.result._frameEnvelope||{};
-      return t.absoluteArea>=.040&&(e.weakestAdj||0)>=.20&&
-        (e.relativeAdjScore||0)>=.72&&(e.minThickness||0)>=.66;
+      const xs=t.result._quad.map(p=>p.x),ys=t.result._quad.map(p=>p.y);
+      const spanX=Math.max(...xs)-Math.min(...xs),spanY=Math.max(...ys)-Math.min(...ys);
+      const pagePerimeter=(spanX>=.80||spanY>=.80)&&
+        (Math.min(...xs)<=.08||Math.max(...xs)>=.92||Math.min(...ys)<=.08||Math.max(...ys)>=.92);
+      const normalCell=(e.weakestAdj||0)>=.20&&(e.relativeAdjScore||0)>=.72;
+      const darkArtworkCell=isDarkArtworkCell(t);
+      const perimeterCell=pagePerimeter&&t.consensus>=3&&
+        (e.weakestAdj||0)>=.12&&(e.relativeAdjScore||0)>=.90;
+      const nearL=Math.min(...xs)<=.08,nearR=Math.max(...xs)>=.92;
+      const nearT=Math.min(...ys)<=.08,nearB=Math.max(...ys)>=.92;
+      const cornerEdgeCell=(nearL||nearR)&&(nearT||nearB)&&t.consensus>=2&&
+        (e.adjacencyScore||0)>=.50&&(e.weakestAdj||0)>=.25&&
+        (e.relativeAdjScore||0)>=.90&&(e.minThickness||0)>=.50;
+      return t.absoluteArea>=.040&&t.absoluteArea<=.50&&
+        (normalCell||darkArtworkCell||perimeterCell||cornerEdgeCell)&&
+        ((e.minThickness||0)>=.66||cornerEdgeCell);
     }):[];
-    completeCells.sort((a,b)=>a.absoluteArea-b.absoluteArea||b.rank-a.rank);
-    const chosen=completeCells[0]||trials[0];
+    const maxCompleteWeak=Math.max(0,...completeCells.map(t=>t.result._frameEnvelope?.weakestAdj||0));
+    const supportedCompleteCells=completeCells.filter(t=>isDarkArtworkCell(t)||
+      (t.result._frameEnvelope?.weakestAdj||0)>=Math.max(.12,maxCompleteWeak-.30));
+    supportedCompleteCells.sort((a,b)=>{
+      if(isDarkArtworkCell(a)&&isDarkArtworkCell(b)&&
+        Math.max(a.absoluteArea,b.absoluteArea)/Math.max(.001,Math.min(a.absoluteArea,b.absoluteArea))<=1.35)return b.rank-a.rank;
+      return a.absoluteArea-b.absoluteArea||b.rank-a.rank;
+    });
+    let completeChoice=supportedCompleteCells[0]||null;
+    if(completeChoice){
+      const bbox=(t)=>{const q=t.result._quad,x=q.map(p=>p.x),y=q.map(p=>p.y);return{l:Math.min(...x),r:Math.max(...x),t:Math.min(...y),b:Math.max(...y)};};
+      const smallBox=bbox(completeChoice),smallWeak=completeChoice.result._frameEnvelope?.weakestAdj||0;
+      const outer=supportedCompleteCells.filter(t=>{
+        if(t===completeChoice||t.absoluteArea<=completeChoice.absoluteArea||t.absoluteArea>completeChoice.absoluteArea*1.46)return false;
+        const big=bbox(t),matches=[Math.abs(big.l-smallBox.l),Math.abs(big.r-smallBox.r),
+          Math.abs(big.t-smallBox.t),Math.abs(big.b-smallBox.b)].filter(d=>d<=.055).length;
+        const contains=big.l<=smallBox.l+.025&&big.r>=smallBox.r-.025&&big.t<=smallBox.t+.025&&big.b>=smallBox.b-.025;
+        const corroborated=t.consensus>=Math.max(3,completeChoice.consensus);
+        return matches>=3&&contains&&corroborated&&(t.result._frameEnvelope?.weakestAdj||0)>=smallWeak-.08;
+      }).sort((a,b)=>b.absoluteArea-a.absoluteArea||b.consensus-a.consensus||b.rank-a.rank);
+      if(outer[0])completeChoice=outer[0];
+      const choiceWeak=completeChoice.result._frameEnvelope?.weakestAdj||0;
+      const decisive=supportedCompleteCells.filter(t=>{
+        if(t===completeChoice||t.absoluteArea<=completeChoice.absoluteArea)return false;
+        const ratio=t.absoluteArea/Math.max(.001,completeChoice.absoluteArea);
+        const weak=t.result._frameEnvelope?.weakestAdj||0;
+        const nestedDominance=ratio<=1.90&&t.consensus>=Math.max(8,completeChoice.consensus*4)&&t.rank>=completeChoice.rank+.50;
+        const compactRescue=!!panel._geometryOnlyRescue&&completeChoice.absoluteArea<=.12&&ratio<=5.50&&
+          t.consensus>=Math.max(12,completeChoice.consensus*2.2)&&t.rank>=completeChoice.rank+.25&&weak>=choiceWeak+.04;
+        return (nestedDominance||compactRescue)&&(t.result._frameEnvelope?.relativeAdjScore||0)>=.85&&
+          weak>=.15&&(t.result._frameEnvelope?.minThickness||0)>=.75;
+      }).sort((a,b)=>b.consensus-a.consensus||b.rank-a.rank);
+      if(decisive[0])completeChoice=decisive[0];
+      if(log)log(`COMPLETE CELL candidates=${completeCells.length}/${supportedCompleteCells.length} outer=${outer.length} chosen=${completeChoice.source} area=${completeChoice.absoluteArea.toFixed(3)}`);
+    }
+    const perimeterFallback=suspiciousSeed?trials.filter(t=>{
+      const e=t.result._frameEnvelope||{},xs=t.result._quad.map(p=>p.x),ys=t.result._quad.map(p=>p.y);
+      const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+      const spansPage=(maxX-minX>=.80&&minX<=.08&&maxX>=.92)||(maxY-minY>=.80&&minY<=.08&&maxY>=.92);
+      return !(panel._edgeClippedSeed&&t.source==='primary')&&spansPage&&t.absoluteArea>=.040&&t.absoluteArea<=.68&&
+        t.consensus>=2&&(e.weakestAdj||0)>=.10&&(e.relativeAdjScore||0)>=.55&&(e.minThickness||0)>=.10;
+    }):[];
+    perimeterFallback.sort((a,b)=>b.absoluteArea-a.absoluteArea||b.rank-a.rank);
+    const identityRepairs=trials.filter(t=>t.seed?._identityAlignedRepair).filter(t=>{
+      const q=t.result._quad,xs=q.map(p=>p.x),ys=q.map(p=>p.y),spanX=Math.max(...xs)-Math.min(...xs),spanY=Math.max(...ys)-Math.min(...ys);
+      return identity.w>=.60&&identity.h<=.24?spanX>=.80:spanY>=.80;
+    }).sort((a,b)=>a.absoluteArea-b.absoluteArea||b.rank-a.rank);
+    const localIdentityRepairs=identity?trials.filter(t=>t.seed?._identityLocalRepair).filter(t=>{
+      const e=t.result._frameEnvelope||{},ratio=t.absoluteArea/Math.max(.001,identity.w*identity.h);
+      return ratio>=.75&&ratio<=1.85&&(e.relativeAdjScore||0)>=.80&&(e.adjacencyScore||0)>=.14&&
+        (e.minThickness||0)>=.72&&(e.seedCoverage||0)>=.88;
+    }).sort((a,b)=>(b.result._frameEnvelope?.adjacencyScore||0)-(a.result._frameEnvelope?.adjacencyScore||0)||b.consensus-a.consensus||b.rank-a.rank):[];
+    const structuralPrimary=panel._structuralCompositeSeed&&!panel._edgeClippedSeed&&seedArea>=.45?trials.find(t=>t.source==='primary'):null;
+    if(log&&identity)log(`IDENTITY REPAIR candidates=${localIdentityRepairs.length} aligned=${identityRepairs.length}`);
+    const chosen=identityRepairs[0]||localIdentityRepairs[0]||completeChoice||structuralPrimary||perimeterFallback[0]||trials[0];
     chosen.result._frameEnvelope.multiscaleSeedRescue=true;
     chosen.result._frameEnvelope.seedConsensus=chosen.consensus;
     chosen.result._frameEnvelope.seedSource=chosen.source;
@@ -166,12 +509,19 @@ const PanelFrameEnvelope = {
     const scale=Math.min(1,maxDim/Math.max(img.width,img.height));
     const w=Math.max(1,Math.round(img.width*scale));
     const h=Math.max(1,Math.round(img.height*scale));
-    const canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
-    const ctx=canvas.getContext('2d',{willReadFrequently:true});
-    ctx.drawImage(img,0,0,w,h);
-    const rgba=ctx.getImageData(0,0,w,h).data;
-    const lum=new Uint8Array(w*h);
-    for(let i=0,j=0;i<rgba.length;i+=4,j++) lum[j]=Math.round(.299*rgba[i]+.587*rgba[i+1]+.114*rgba[i+2]);
+    let lum;
+    const cached=img._nthFrameLumCache;
+    if(cached&&cached.width===w&&cached.height===h&&cached.lum?.length===w*h){
+      lum=cached.lum;
+    }else{
+      const canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
+      const ctx=canvas.getContext('2d',{willReadFrequently:true});
+      ctx.drawImage(img,0,0,w,h);
+      const rgba=ctx.getImageData(0,0,w,h).data;
+      lum=new Uint8Array(w*h);
+      for(let i=0,j=0;i<rgba.length;i+=4,j++) lum[j]=Math.round(.299*rgba[i]+.587*rgba[i+1]+.114*rgba[i+2]);
+      try{img._nthFrameLumCache={width:w,height:h,lum};}catch(_){/* correctness unchanged */}
+    }
 
     const x0=Math.max(2,Math.round(panel.x*w));
     const y0=Math.max(2,Math.round(panel.y*h));
@@ -225,10 +575,18 @@ const PanelFrameEnvelope = {
         if(negative&&atTap>seedCross+inward)return null;
         if(!negative&&atTap<seedCross-inward)return null;
         let n=0,dark=0,strong=0,longest=0,run=0,segments=0,inSeg=false;
+        let contrastHits=0,balancedHits=0,contrastSum=0;
+        const contrastOffset=Math.max(3,Math.min(8,Math.round(crossSpan*.025)));
         for(let a=a0;a<=a1;a+=step){
           const p=m*a+b;
           if(p<2||p>=dimCross-2){run=0;inSeg=false;continue;}
           const v=horizontal?pixelLum(a,p):pixelLum(p,a); n++;
+          const va=horizontal?pixelLum(a,p-contrastOffset):pixelLum(p-contrastOffset,a);
+          const vb=horizontal?pixelLum(a,p+contrastOffset):pixelLum(p+contrastOffset,a);
+          const ca=va-v,cb=vb-v,contrast=(ca+cb)/2;
+          if(contrast>=10)contrastHits++;
+          if(ca>=6&&cb>=6)balancedHits++;
+          contrastSum+=Math.max(0,Math.min(80,contrast))/80;
           if(v<=172){dark++;run++;if(run>longest)longest=run;if(!inSeg){segments++;inSeg=true;}}else{run=0;inSeg=false;}
           if(v<=112)strong++;
         }
@@ -238,7 +596,9 @@ const PanelFrameEnvelope = {
         const outwardDist=negative?seedCross-atTap:atTap-seedCross;
         const nearestPenalty=Math.max(0,outwardDist)/Math.max(25,outward)*.30;
         const fragmentationPenalty=Math.max(0,segments-4)*.032;
-        const score=support*2.30+continuity*1.75+strongRate*.45-nearestPenalty-fragmentationPenalty;
+        const contrastRate=contrastHits/n,balancedRate=balancedHits/n,contrastMean=contrastSum/n;
+        const score=support*2.30+continuity*1.75+strongRate*.45+
+          contrastRate*.90+balancedRate*.55+contrastMean*.70-nearestPenalty-fragmentationPenalty;
 
         const samples=[];
         for(let a=a0;a<=a1;a+=step){
@@ -258,23 +618,30 @@ const PanelFrameEnvelope = {
           }
         }
         if(bestStart===null||bestEnd===null||bestEnd-bestStart<Math.max(12,alongSpan*.15))return null;
-        return {kind,horizontal,m,b,anchor,atTap,support,continuity,strongRate,segments,score,span0:bestStart,span1:bestEnd,spanLen:bestEnd-bestStart};
+        return {kind,horizontal,m,b,anchor,atTap,support,continuity,strongRate,
+          contrastRate,balancedRate,contrastMean,segments,score,
+          span0:bestStart,span1:bestEnd,spanLen:bestEnd-bestStart};
       };
 
-      // Side-labelled rails must still behave like their side. The wider
-      // range admitted diagonal artwork as false left/right boundaries.
-      const slopeLimit=.34;
+      const slopeLimit=.46;
       for(let m=-slopeLimit;m<=slopeLimit+1e-9;m+=.040){
         for(let anchor=anchorLo;anchor<=anchorHi;anchor+=4){
           const c=evaluate(m,anchor); if(c)pool.push(c);
         }
       }
       pool.sort((a,b)=>b.score-a.score);
+      const edgeSeed=seedCross<=dimCross*.08||seedCross>=dimCross*.92;
+      const edgeAxisNear=edgeSeed?[...pool].filter(c=>Math.abs(c.m)<=.10).sort((a,b)=>
+        Math.abs(a.atTap-seedCross)-Math.abs(b.atTap-seedCross)||b.score-a.score
+      ).slice(0,4):[];
+      const shortlist=edgeSeed?[...pool.slice(0,14),...edgeAxisNear,...[...pool].sort((a,b)=>
+        Math.abs(a.atTap-seedCross)-Math.abs(b.atTap-seedCross)||b.score-a.score
+      ).slice(0,8)]:pool;
       const kept=[];
-      for(const c of pool){
+      for(const c of shortlist){
         if(kept.some(k=>Math.abs(k.atTap-c.atTap)<7 && Math.abs(k.m-c.m)<.045))continue;
         kept.push(c);
-        if(kept.length>=18)break;
+        if(kept.length>=(edgeSeed?22:18))break;
       }
       // Fine-refit only the retained hypotheses.
       for(let i=0;i<kept.length;i++){
@@ -287,11 +654,17 @@ const PanelFrameEnvelope = {
         kept[i]=best;
       }
       kept.sort((a,b)=>b.score-a.score);
+      const refinedEdgeAxisNear=edgeSeed?[...kept].filter(c=>Math.abs(c.m)<=.12).sort((a,b)=>
+        Math.abs(a.atTap-seedCross)-Math.abs(b.atTap-seedCross)||b.score-a.score
+      ).slice(0,3):[];
+      const finalists=edgeSeed?[...kept.slice(0,10),...refinedEdgeAxisNear,...[...kept].sort((a,b)=>
+        Math.abs(a.atTap-seedCross)-Math.abs(b.atTap-seedCross)||b.score-a.score
+      ).slice(0,6)]:kept;
       const distinct=[];
-      for(const c of kept){
+      for(const c of finalists){
         if(distinct.some(k=>Math.abs(k.atTap-c.atTap)<5 && Math.abs(k.m-c.m)<.035))continue;
         distinct.push(c);
-        if(distinct.length>=12)break;
+        if(distinct.length>=(edgeSeed?14:12))break;
       }
       kept.length=0;
       kept.push(...distinct);
@@ -316,6 +689,8 @@ const PanelFrameEnvelope = {
     const alongAt=(rail,p)=>rail.horizontal?p.x:p.y;
     const basePad=(rail)=>Math.max(8,Math.min(22,rail.spanLen*.07));
     const overrun=(rail,p)=>{
+      const crossDim=rail.horizontal?h:w;
+      if(rail.atTap<=crossDim*.06||rail.atTap>=crossDim*.94)return 0;
       const a=alongAt(rail,p),pad=basePad(rail);
       if(a<rail.span0-pad)return rail.span0-a-pad;
       if(a>rail.span1+pad)return a-rail.span1-pad;

@@ -64,14 +64,20 @@ const PanelGeometrySkewed = {
     // neighbor separation and printed-band integrity may prove skew ownership.
     const adjSides=panel?._frameEnvelope?.adjSides||[];
     const thicknessSides=panel?._frameEnvelope?.thicknessSides||[];
+    const frameEvidence=panel?._frameEnvelope||{};
+    const relativeRailProof=(frameEvidence.seedConsensus||0)>=3&&
+      (frameEvidence.relativeAdjScore||0)>=.82&&
+      (frameEvidence.adjacencyScore||0)>=.23&&
+      (frameEvidence.minThickness||0)>=.78;
     const trustedAxisDepartures=axisDepartures.filter((departure,i)=>
-      departure>=5.0&&(adjSides[i]===undefined||adjSides[i]>=.50)&&
+      departure>=4.5&&(adjSides[i]===undefined||adjSides[i]>=.50||
+        (relativeRailProof&&adjSides[i]>=.14))&&
       (thicknessSides[i]===undefined||thicknessSides[i]>=.66)
     );
     const trustedAxisDeparture=Math.max(0,...trustedAxisDepartures);
     // One trusted non-axial rail is still not enough by itself. It needs
     // corroboration from a second corner or opposing-rail divergence.
-    const substantial=trustedAxisDeparture>=5.0;
+    const substantial=trustedAxisDeparture>=4.5;
     const corroborated=secondDev>=4.5||oppositeDivergence>=5.0;
     const owns=substantial&&corroborated;
     const confidence=Math.max(0,Math.min(1,
@@ -81,7 +87,8 @@ const PanelGeometrySkewed = {
       owns,owner:owns?'skewed':'orthogonal',
       reason:owns?'whole-frame-angle-proof':'orthogonal-angle-profile',confidence,
       angles,deviations,edgeAngles,axisDepartures,maxDev,secondDev,
-      maxAxisDeparture,trustedAxisDeparture,oppositeDivergence,adjSides,thicknessSides
+      maxAxisDeparture,trustedAxisDeparture,oppositeDivergence,adjSides,thicknessSides,
+      relativeRailProof
     };
     if(log)log(`FRAME OWNERSHIP angles=${angles.map(a=>a.toFixed(1)).join('/')} dev=${deviations.map(a=>a.toFixed(1)).join('/')} axis=${axisDepartures.map(a=>a.toFixed(1)).join('/')} trusted=${trustedAxisDeparture.toFixed(1)} adj=${adjSides.map(a=>a.toFixed(2)).join('/')} opp=${oppositeDivergence.toFixed(1)}`);
     if(log)log(`FRAME OWNERSHIP -> ${owns?'SKEWED':'ORTHOGONAL'} confidence=${confidence.toFixed(2)} reason=${result.reason}`);

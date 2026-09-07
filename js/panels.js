@@ -55,7 +55,10 @@ const PanelDetect = {
     for(let i=0,j=0;i<d.length;i+=4,j++) lum[j]=Math.round(.299*d[i]+.587*d[i+1]+.114*d[i+2]);
 
     // Find the comic's outer content rails from sustained dark runs near edges.
-    const darkCut = 62;
+    // The structural pass deliberately uses a more inclusive threshold than
+    // the legacy detector because antialiased/skewed printed rails are often
+    // dark gray rather than pure black.
+    const darkCut = 82;
     const rowRun = (y,x0,x1)=>{let best=0,run=0;for(let x=x0;x<=x1;x++){if(lum[y*w+x]<=darkCut){run++;best=Math.max(best,run)}else run=0}return best};
     const colRun = (x,y0,y1)=>{let best=0,run=0;for(let y=y0;y<=y1;y++){if(lum[y*w+x]<=darkCut){run++;best=Math.max(best,run)}else run=0}return best};
     let x0=0,x1=w-1,y0=0,y1=h-1;
@@ -65,43 +68,83 @@ const PanelDetect = {
     for(let x=0;x<Math.round(w*.12);x++) if(colRun(x,0,h-1)>=minVR){x0=x;break}
     for(let x=w-1;x>Math.round(w*.88);x--) if(colRun(x,0,h-1)>=minVR){x1=x;break}
 
-    const regions=[];
+    const regions=[], splitTrace=[];
     const split=(a,b,c0,d0,depth)=>{
       const rw=b-a+1, rh=d0-c0+1;
       if(depth>7 || rw<w*.075 || rh<h*.055){regions.push([a,c0,b,d0]);return}
       let best=null;
+      const sepBand=Math.max(2,Math.min(7,Math.round(Math.min(rw,rh)*.018)));
       // Candidate horizontal separator: sustained dark run OR narrow quiet gutter,
       // measured across the CURRENT region (so partial dividers become full after
       // their parent split).
       const my=Math.max(4,Math.round(rh*.05));
       for(let y=c0+my;y<=d0-my;y++){
-        let dark=0, quiet=0, run=0, bestRun=0, sum=0, sq=0;
+        let dark=0,run=0,bestRun=0,rawDark=0,rawRun=0,rawBestRun=0,sum=0,sq=0;
         for(let x=a;x<=b;x++){
-          const v=lum[y*w+x]; if(v<=darkCut){dark++;run++;bestRun=Math.max(bestRun,run)}else run=0;
+          let railV=255;
+          for(let yy=Math.max(c0,y-sepBand);yy<=Math.min(d0,y+sepBand);yy++) railV=Math.min(railV,lum[yy*w+x]);
+          const v=lum[y*w+x];
+          if(railV<=darkCut){dark++;run++;bestRun=Math.max(bestRun,run)}else run=0;
+          if(v<=darkCut){rawDark++;rawRun++;rawBestRun=Math.max(rawBestRun,rawRun)}else rawRun=0;
           sum+=v; sq+=v*v;
         }
         const n=rw, mean=sum/n, sd=Math.sqrt(Math.max(0,sq/n-mean*mean));
         const darkFrac=dark/n, runFrac=bestRun/n;
-        const blackScore=(runFrac>=.64 && darkFrac>=.48)?(runFrac+darkFrac):0;
+        const rawDarkFrac=rawDark/n, rawRunFrac=rawBestRun/n;
+        const sideOffset=sepBand+3;
+        let sideA=0,sideB=0;
+        for(let x=a;x<=b;x++){
+          sideA+=lum[Math.max(c0,y-sideOffset)*w+x];
+          sideB+=lum[Math.min(d0,y+sideOffset)*w+x];
+        }
+        const railContrast=(sideA+sideB)/(2*n)-mean;
+        const straightScore=(rawRunFrac>=.86&&rawDarkFrac>=.70)?rawRunFrac+rawDarkFrac:0;
+        const driftingScore=(runFrac>=.86&&darkFrac>=.68&&rawDarkFrac>=.16)?(runFrac+darkFrac)*.90:0;
+        const blackScore=Math.max(
+          (railContrast>=18||mean<=35)?straightScore:0,
+          (railContrast>=30||mean<=35)?driftingScore:0
+        );
         const gutterScore=(sd<=10 && (mean>=165 || mean<=150))?(.95 + (10-sd)/20):0;
         const score=Math.max(blackScore,gutterScore);
-        if(score>0 && (!best || score>best.score)) best={axis:'H',pos:y,score};
+        if(score>0 && (!best || score>best.score)) best={axis:'H',pos:y,score,
+          mode:blackScore>=gutterScore?'rail':'gutter',rawDarkFrac,rawRunFrac,
+          darkFrac,runFrac,mean,sd,railContrast};
       }
       const mx=Math.max(4,Math.round(rw*.05));
       for(let x=a+mx;x<=b-mx;x++){
-        let dark=0,run=0,bestRun=0,sum=0,sq=0;
+        let dark=0,run=0,bestRun=0,rawDark=0,rawRun=0,rawBestRun=0,sum=0,sq=0;
         for(let y=c0;y<=d0;y++){
-          const v=lum[y*w+x]; if(v<=darkCut){dark++;run++;bestRun=Math.max(bestRun,run)}else run=0;
+          let railV=255;
+          for(let xx=Math.max(a,x-sepBand);xx<=Math.min(b,x+sepBand);xx++) railV=Math.min(railV,lum[y*w+xx]);
+          const v=lum[y*w+x];
+          if(railV<=darkCut){dark++;run++;bestRun=Math.max(bestRun,run)}else run=0;
+          if(v<=darkCut){rawDark++;rawRun++;rawBestRun=Math.max(rawBestRun,rawRun)}else rawRun=0;
           sum+=v; sq+=v*v;
         }
         const n=rh, mean=sum/n, sd=Math.sqrt(Math.max(0,sq/n-mean*mean));
         const darkFrac=dark/n, runFrac=bestRun/n;
-        const blackScore=(runFrac>=.64 && darkFrac>=.48)?(runFrac+darkFrac):0;
+        const rawDarkFrac=rawDark/n, rawRunFrac=rawBestRun/n;
+        const sideOffset=sepBand+3;
+        let sideA=0,sideB=0;
+        for(let y=c0;y<=d0;y++){
+          sideA+=lum[y*w+Math.max(a,x-sideOffset)];
+          sideB+=lum[y*w+Math.min(b,x+sideOffset)];
+        }
+        const railContrast=(sideA+sideB)/(2*n)-mean;
+        const straightScore=(rawRunFrac>=.86&&rawDarkFrac>=.70)?rawRunFrac+rawDarkFrac:0;
+        const driftingScore=(runFrac>=.86&&darkFrac>=.68&&rawDarkFrac>=.16)?(runFrac+darkFrac)*.90:0;
+        const blackScore=Math.max(
+          (railContrast>=18||mean<=35)?straightScore:0,
+          (railContrast>=30||mean<=35)?driftingScore:0
+        );
         const gutterScore=(sd<=10 && (mean>=165 || mean<=150))?(.95 + (10-sd)/20):0;
         const score=Math.max(blackScore,gutterScore);
-        if(score>0 && (!best || score>best.score+.03)) best={axis:'V',pos:x,score};
+        if(score>0 && (!best || score>best.score+.03)) best={axis:'V',pos:x,score,
+          mode:blackScore>=gutterScore?'rail':'gutter',rawDarkFrac,rawRunFrac,
+          darkFrac,runFrac,mean,sd,railContrast};
       }
       if(!best){regions.push([a,c0,b,d0]);return}
+      splitTrace.push({region:[a,c0,b,d0],depth,...best});
       const pad=Math.max(2,Math.round((best.axis==='H'?rh:rw)*.006));
       if(best.axis==='H'){
         if(best.pos-c0 < rh*.09 || d0-best.pos < rh*.09){regions.push([a,c0,b,d0]);return}
@@ -118,12 +161,22 @@ const PanelDetect = {
     // Conservative cleanup and tap selection. Reject implausibly tiny fragments.
     const clean=regions.filter(r=>((r[2]-r[0]+1)*(r[3]-r[1]+1)) >= w*h*.018);
     if(log) log(`V100 hybrid partition rails=${x0},${y0}-${x1},${y1} regions=${clean.length}`);
+    if(splitTrace.length>20){if(log)log(`V100 hybrid MISS: unstable over-partition splits=${splitTrace.length}`);return null}
     const hit=clean.find(r=>tx>=r[0]&&tx<=r[2]&&ty>=r[1]&&ty<=r[3]);
     if(!hit){if(log)log('V100 hybrid MISS: tap not in proven region');return null}
     const pw=hit[2]-hit[0]+1, ph=hit[3]-hit[1]+1;
     // If the result is nearly the whole page, hybrid learned nothing; defer.
     if(pw*ph > (x1-x0+1)*(y1-y0+1)*.86){if(log)log('V100 hybrid MISS: unpartitioned page');return null}
-    const out={x:hit[0]/w,y:hit[1]/h,w:pw/w,h:ph/h,_v100Hybrid:true};
+    const out={x:hit[0]/w,y:hit[1]/h,w:pw/w,h:ph/h,_v100Hybrid:true,
+      _v100SplitTrace:splitTrace};
+
+    // A page-edge structural fragment covering over half the image is usually
+    // an unsplit composite, not a usable identity seed. Let V99 or the strict
+    // closed-frame rescue decide instead.
+    const outArea=out.w*out.h;
+    const edgeComposite=outArea>.50&&
+      (out.x<=.003||out.y<=.003||out.x+out.w>=.997||out.y+out.h>=.997);
+    if(edgeComposite){if(log)log(`V100 hybrid MISS: edge composite area=${outArea.toFixed(3)}`);return null}
 
     if(log)log(`V100 hybrid HIT x=${out.x.toFixed(4)} y=${out.y.toFixed(4)} w=${out.w.toFixed(4)} h=${out.h.toFixed(4)}`);
     return out;
