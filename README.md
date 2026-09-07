@@ -106,9 +106,13 @@ Nth Shelf can be installed as a PWA on supported devices. The app shell is cache
 7. Use Backup/Restore to keep a safety copy.
 
 ## 🧪 Current Release
-**Version 2.79.01 Adaptive Proven-Frame Fast Path**
+**Version 2.79.02 One-Search Local Consensus Fast Path**
 
 ## 🧪 Release History (Newest First)
+
+## V2.79.02 One-Search Local Consensus Fast Path
+
+V2.79.02 accelerates V2.79.01's proven-frame path without relaxing its frame-ownership gates. The preferred adaptive seed performs one complete four-rail search; two alternate seed windows then verify the same finished quadrilateral using cached luminance, local reach, enclosure, coverage, and sustained rail ink. The bounded bottom-left page-edge family retains its existing two-proof exception. If local confirmation is insufficient, the complete V2.79.01 three-search consensus runs unchanged. On the six-frame sepia stress page, direct adaptive-search time fell from 69.7 seconds to 17.8 seconds across all six canonical taps (74.4% lower), while every returned quadrilateral remained identical. The release passed all 12 cold canonical/moved app-path tests, a 12-tap consecutive live-cache sequence, and a 25-route cross-page rejection sweep including the page-39 artwork-loop regression.
 
 ## V2.79.01 Adaptive Proven-Frame Fast Path
 

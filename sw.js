@@ -1,6 +1,6 @@
-// NTH SHELF V2.79.01 — ADAPTIVE PROVEN-FRAME FAST PATH
+// NTH SHELF V2.79.02 — ONE-SEARCH LOCAL CONSENSUS FAST PATH
 
-const CACHE_NAME = "nth-shelf-shell-2.79.01";
+const CACHE_NAME = "nth-shelf-shell-2.79.02";
 const SHELL_FILES = [
   "./",
   "./index.html",
