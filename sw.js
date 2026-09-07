@@ -1,6 +1,6 @@
-// NTH SHELF V2.79.02 — ONE-SEARCH LOCAL CONSENSUS FAST PATH
+// NTH SHELF V2.79.03 — QUICK PROVEN-FRAME ROUTE
 
-const CACHE_NAME = "nth-shelf-shell-2.79.02";
+const CACHE_NAME = "nth-shelf-shell-2.79.03";
 const SHELL_FILES = [
   "./",
   "./index.html",

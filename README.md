@@ -106,9 +106,13 @@ Nth Shelf can be installed as a PWA on supported devices. The app shell is cache
 7. Use Backup/Restore to keep a safety copy.
 
 ## 🧪 Current Release
-**Version 2.79.02 One-Search Local Consensus Fast Path**
+**Version 2.79.03 Quick Proven-Frame Route**
 
 ## 🧪 Release History (Newest First)
+
+## V2.79.03 Quick Proven-Frame Route
+
+V2.79.03 moves the bounded one-search/local-consensus proof directly behind a V73 baseline miss, ahead of the slower sequential identity fallbacks. This front route cannot enter the three-search or exhaustive banks: a miss immediately defers to the complete V2.79.02 V100 → V99/V92 → geometry-rescue chain. Rail evaluation now precomputes the exact five-pixel luminance averages once per decoded page and folds duplicate finite-span sampling into the primary pass; the 900-pixel analysis resolution and every existing enclosure, thickness, adjacency, ownership, and false-positive gate remain unchanged. On the six-frame sepia stress page, all 12 cold canonical/moved app-path tests passed in 1.45–2.02 seconds (1.71-second average), down from V2.79.02's 8.82-second average. A consecutive live-process run resolved first-time panels in 1.40–2.32 seconds and cached taps in 0.12–0.15 seconds, with no ownership change and at most 0.00005 normalized vertex drift. Both the 25-route quick/full safety sweeps and the broader 43-route uncovered-page sweep produced zero unsafe acceptances, errors, or timeouts.
 
 ## V2.79.02 One-Search Local Consensus Fast Path
 
